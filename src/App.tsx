@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react"
 import TableCore from "./core/TableCore"
-import type { Column, Row } from "./core/types"
+import type { Column, Row, Selection } from "./core/types"
 
 /** Demo: blanding av rot/barn for tre-modus + validering */
 function makeRows(n: number): Row[] {
@@ -24,6 +24,8 @@ function makeRows(n: number): Row[] {
 
 export default function App() {
   const [rows, setRows] = useState<Row[]>(() => makeRows(5000))
+  const [treeMode, setTreeMode] = useState(true)
+  const [selection, setSelection] = useState<Selection>({ r1: 0, c1: 1, r2: 0, c2: 1 })
 
   const [columns, setColumns] = useState<Column[]>(() => ([
     { key: "aktivitet", name: "Aktivitet", width: 260, editable: true },
@@ -51,17 +53,87 @@ export default function App() {
     { key: "farge", name: "Farge", width: 100, editable: true },
   ]))
 
+  // Demo-helpers
+  const addRowBelow = () => {
+    const vr = selection.r2
+    const insertAfterDataIdx = dataIndexAtVisible(vr)
+    const next = rows.slice()
+    const id = (next[next.length - 1]?.id ?? next.length) + 1
+    const row: Row = {
+      id,
+      parentId: next[insertAfterDataIdx]?.parentId ?? null,
+      aktivitet: `Ny aktivitet ${id}`,
+      ansvarlig: "",
+      start: "",
+      slutt: "",
+      timer: "",
+      farge: ""
+    }
+    next.splice(insertAfterDataIdx + 1, 0, row)
+    setRows(next)
+  }
+
+  const deleteSelectedRows = () => {
+    const s = selection
+    const vis = buildVisible(rows)
+    const toDelete = new Set<number>()
+    for (let vr = s.r1; vr <= s.r2; vr++) {
+      const di = rows.indexOf(vis[vr])
+      if (di >= 0) toDelete.add(di)
+    }
+    const next = rows.filter((_, idx) => !toDelete.has(idx))
+    setRows(next)
+  }
+
+  // Liten intern visible (kun for demo-funksjoner)
+  const buildVisible = (src: Row[]) => {
+    if (!treeMode) return src
+    const withExpanded = new Set<any>()
+    src.forEach(r => { if (r.parentId != null) withExpanded.add(r.parentId) })
+    // enkel "alt ekspandert"-synlighet for demo
+    const out: Row[] = []
+    const levelById = new Map<any, number>()
+    const idOf = (r: Row) => (r.id ?? r)
+    const pidOf = (r: Row) => (r.parentId ?? null)
+    for (let i = 0; i < src.length; i++) {
+      const r = src[i]
+      const pid = pidOf(r)
+      let level = 0
+      if (pid != null && levelById.has(pid)) level = (levelById.get(pid) ?? 0) + 1
+      levelById.set(idOf(r), level)
+      out.push(r)
+    }
+    return out
+  }
+
+  const dataIndexAtVisible = (vr: number) => {
+    const vis = buildVisible(rows)
+    const row = vis[vr]
+    return rows.indexOf(row)
+  }
+
   return (
     <div className="app">
       <div className="panel">
-        <h1 style={{margin:0, fontSize:18}}>TableCore – Etapper 2–4</h1>
-        <ul style={{marginTop:8, color:"var(--muted)"}}>
-          <li>#-kolonne: caret (tre), radnr (skjules på tom rad), drag-handle</li>
-          <li>Dra/slipp: kolonner i header, rader (inkl. markert blokk)</li>
-          <li>Tre-modus: parentId, caret, Ctrl/Cmd+←/→, Alt+→ (2-trinn), Alt+←, Alt+↑/↓</li>
-          <li>Typografi pr nivå (fet/kursiv/størrelse)</li>
-          <li>Clipboard: copy/paste TSV og HTML-tabell, validering m/feilvisning</li>
-        </ul>
+        <h1 style={{margin:0, fontSize:18}}>TableCore – v1 ferdig (Etappe 5)</h1>
+        <p style={{marginTop:8, color:"var(--muted)"}}>
+          Polert props-kontrakt, tastaturforbedringer, og demo-verktøylinje for raske tester.
+        </p>
+      </div>
+
+      <div className="panel">
+        <div className="toolbar">
+          <button className="btn" onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key:"z", ctrlKey:true }))}>↶ Angre</button>
+          <button className="btn" onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key:"y", ctrlKey:true }))}>↷ Gjør om</button>
+          <button className="btn" onClick={addRowBelow}>＋ Legg til rad under</button>
+          <button className="btn" onClick={deleteSelectedRows}>🗑 Slett markerte rader</button>
+          <button className="btn" onClick={() => setTreeMode(v => !v)}>
+            {treeMode ? "Tre-modus: PÅ" : "Tre-modus: AV"}
+          </button>
+          <span style={{marginLeft:12, color:"var(--muted)"}}>
+            Markering: r{selection.r1}–{selection.r2}, c{selection.c1}–{selection.c2}
+          </span>
+        </div>
       </div>
 
       <div className="panel">
@@ -71,9 +143,8 @@ export default function App() {
           onRowsChange={setRows}
           onCommit={setRows}
           onPatch={() => {}}
-          onSelectionChange={() => {}}
+          onSelectionChange={(s) => setSelection(s)}
           onReorderColumns={({ fromIndex, toIndex }) => {
-            // Kolonnelista i TableCore inkluderer # på index 0 – her mottar vi 1-basert innhold (uten #)
             const cols = columns.slice()
             const from = fromIndex - 1
             const to = toIndex - 1
@@ -91,7 +162,9 @@ export default function App() {
           }}
           rowHeight={28}
           headerHeight={30}
-          treeMode={true}
+          viewportHeight={520}
+          treeMode={treeMode}
+          expandAllByDefault={true}
         />
       </div>
     </div>
