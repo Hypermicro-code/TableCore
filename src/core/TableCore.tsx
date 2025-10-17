@@ -75,6 +75,12 @@ function buildVisible(rows: Row[], expanded: Record<string | number, boolean>) {
 function allEmpty(row: Row, columns: Column[]) {
   return columns.every(c => c.key === "#" || row[c.key] === "" || row[c.key] == null)
 }
+/** Hent kolonne ved indeks med hard garanti (kaster hvis mangler) */
+function getCol(cols: Column[], i: number): Column {
+  const col = cols[i]
+  if (!col) throw new Error(`Kolonne mangler på indeks ${i}`)
+  return col
+}
 
 /* ===== TableCore ===== */
 export default function TableCore(props: TableCoreProps) {
@@ -614,11 +620,14 @@ export default function TableCore(props: TableCoreProps) {
                   </span>
                 </div>
 
-                {/* data-celler */}
+                                {/* data-celler */}
                 {Array.from({ length: Math.max(0, columns.length - 1) }).map((_, idx) => {
                   const c = 1 + idx
-                  const colMaybe = columns[c]
-                  if (!colMaybe) {
+                  let col: Column
+                  try {
+                    col = getCol(columns, c) // 🔒 Garantert Column
+                  } catch {
+                    // Hvis noe er off med kolonner: vis tom celle i stedet for å kræsje
                     return (
                       <div
                         key={`empty-col-${idx}`}
@@ -630,10 +639,12 @@ export default function TableCore(props: TableCoreProps) {
                       />
                     )
                   }
-                  const col = colMaybe as Column
+
                   const key = col.key
                   const raw = (dataRow as Row)[key]
                   const v = String(raw ?? "")
+
+                  const rowSel = normSel(sel)
                   const focused = vr === rowSel.r2 && c === rowSel.c2
                   const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
                   const errKey = `${di}::${key}`
@@ -659,6 +670,7 @@ export default function TableCore(props: TableCoreProps) {
                     </div>
                   )
                 })}
+
               </div>
             )
           })}
