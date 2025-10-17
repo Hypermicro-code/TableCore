@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from "react"
+import React, { useState } from "react"
 import TableCore from "./core/TableCore"
 import type { Column, Row, Selection } from "./core/types"
 
-/** Demo: blanding av rot/barn for tre-modus + validering */
+/** Demo-data */
 function makeRows(n: number): Row[] {
   const out: Row[] = []
   for (let i = 0; i < n; i++) {
@@ -53,13 +53,19 @@ export default function App() {
     { key: "farge", name: "Farge", width: 100, editable: true },
   ]))
 
-  // Demo-helpers
+  // For demoens enkle “visible”
+  const buildVisible = (src: Row[]) => src
+
   const addRowBelow = () => {
     const vr = selection.r2
-    const insertAfterDataIdx = dataIndexAtVisible(vr)
+    const vis = buildVisible(rows)
+    const row = vis[vr]
+    if (!row) return
+    const insertAfterDataIdx = rows.indexOf(row)
     const next = rows.slice()
-    const id = (next[next.length - 1]?.id ?? next.length) + 1
-    const row: Row = {
+    const lastIdNum = Number(next[next.length - 1]?.id ?? next.length)
+    const id = lastIdNum + 1
+    const newRow: Row = {
       id,
       parentId: next[insertAfterDataIdx]?.parentId ?? null,
       aktivitet: `Ny aktivitet ${id}`,
@@ -69,7 +75,7 @@ export default function App() {
       timer: "",
       farge: ""
     }
-    next.splice(insertAfterDataIdx + 1, 0, row)
+    next.splice(insertAfterDataIdx + 1, 0, newRow)
     setRows(next)
   }
 
@@ -78,44 +84,19 @@ export default function App() {
     const vis = buildVisible(rows)
     const toDelete = new Set<number>()
     for (let vr = s.r1; vr <= s.r2; vr++) {
-      const di = rows.indexOf(vis[vr])
+      const r = vis[vr]
+      if (!r) continue
+      const di = rows.indexOf(r)
       if (di >= 0) toDelete.add(di)
     }
     const next = rows.filter((_, idx) => !toDelete.has(idx))
     setRows(next)
   }
 
-  // Liten intern visible (kun for demo-funksjoner)
-  const buildVisible = (src: Row[]) => {
-    if (!treeMode) return src
-    const withExpanded = new Set<any>()
-    src.forEach(r => { if (r.parentId != null) withExpanded.add(r.parentId) })
-    // enkel "alt ekspandert"-synlighet for demo
-    const out: Row[] = []
-    const levelById = new Map<any, number>()
-    const idOf = (r: Row) => (r.id ?? r)
-    const pidOf = (r: Row) => (r.parentId ?? null)
-    for (let i = 0; i < src.length; i++) {
-      const r = src[i]
-      const pid = pidOf(r)
-      let level = 0
-      if (pid != null && levelById.has(pid)) level = (levelById.get(pid) ?? 0) + 1
-      levelById.set(idOf(r), level)
-      out.push(r)
-    }
-    return out
-  }
-
-  const dataIndexAtVisible = (vr: number) => {
-    const vis = buildVisible(rows)
-    const row = vis[vr]
-    return rows.indexOf(row)
-  }
-
   return (
     <div className="app">
       <div className="panel">
-        <h1 style={{margin:0, fontSize:18}}>TableCore – v1 ferdig (Etappe 5)</h1>
+        <h1 style={{margin:0, fontSize:18}}>TableCore – v1 ferdig</h1>
         <p style={{marginTop:8, color:"var(--muted)"}}>
           Polert props-kontrakt, tastaturforbedringer, og demo-verktøylinje for raske tester.
         </p>
@@ -150,14 +131,14 @@ export default function App() {
             const to = toIndex - 1
             if (from < 0 || to < 0) return
             const [mv] = cols.splice(from, 1)
+            if (!mv) return
             cols.splice(to, 0, mv)
             setColumns(cols)
           }}
           onReorderRows={({ fromIndex, toIndex, count }) => {
             const next = rows.slice()
             const moved = next.splice(fromIndex, count)
-            const insertAt = toIndex
-            next.splice(insertAt, 0, ...moved)
+            next.splice(toIndex, 0, ...moved)
             setRows(next)
           }}
           rowHeight={28}
