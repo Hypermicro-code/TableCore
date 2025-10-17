@@ -5,7 +5,7 @@ import type {
 } from "./types"
 import { useUndo } from "./useUndo"
 
-/* ==== Props-kontrakt (utvidet) ==== */
+/* ==== Props-kontrakt (polert) ==== */
 export type TableCoreProps = {
   columns: Column[]
   rows: Row[]
@@ -21,8 +21,12 @@ export type TableCoreProps = {
   /* Presentasjon */
   rowHeight?: number
   headerHeight?: number
+  /** Setter synlig høyde på viewport (px). Default 60vh tidligere; nå eksplisitt. */
+  viewportHeight?: number
   /** Vis tre-modus hvis true (tolker parentId) */
   treeMode?: boolean
+  /** Start-tilstand: ekspander rot (false) eller alt (true). */
+  expandAllByDefault?: boolean
 }
 
 /* ==== Hjelpere ==== */
@@ -36,10 +40,8 @@ function normSel(a: Selection): Selection {
 }
 /** Bygg synlig liste fra flat rows + expand-state */
 function buildVisible(rows: Row[], expanded: Record<string|number, boolean>) {
-  // Anta at rows allerede ligger i "preorder" (forelder før barn)
   const out: { row: Row, level: number }[] = []
   const levelById = new Map<string|number, number>()
-
   const idOf = (r: Row) => (r.id ?? r)
   const pidOf = (r: Row) => (r.parentId ?? null)
 
@@ -51,7 +53,6 @@ function buildVisible(rows: Row[], expanded: Record<string|number, boolean>) {
     if (pid != null && levelById.has(pid)) level = (levelById.get(pid) ?? 0) + 1
     levelById.set(id, level)
 
-    // Hvis forelder er kollapset: skjul
     let currentPid = pid
     let visible = true
     while (currentPid != null) {
@@ -72,7 +73,7 @@ function allEmpty(row: Row, columns: Column[]) {
   })
 }
 
-/* ==== TableCore – Etapper 2–4 inkludert ==== */
+/* ==== TableCore – polert (Etappe 5) ==== */
 export default function TableCore(props: TableCoreProps) {
   const {
     columns: columnsProp,
@@ -82,34 +83,49 @@ export default function TableCore(props: TableCoreProps) {
     onReorderRows, onReorderColumns,
     rowHeight = 28,
     headerHeight = 30,
+    viewportHeight = 480,
     treeMode = true,
+    expandAllByDefault = false,
   } = props
 
   const rootRef = useRef<HTMLDivElement>(null)
   const vpRef = useRef<HTMLDivElement>(null)
 
-  // Internt: vi holder på kolonnerekkefølgen slik at vi kan dras/endres, men synk med prop via key
+  // Kolonner inkl. # først
   const [columns, setColumns] = useState<Column[]>(() => {
-    // Injiser #-kolonne først
     return [{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp]
   })
   useEffect(() => {
     setColumns([{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp])
   }, [columnsProp])
 
-  // Expand-state per id (true = expanded). Rot-nivå vises alltid.
+  // Expand-state per id
   const [expanded, setExpanded] = useState<Record<string|number, boolean>>({})
 
-  // Synlig liste med nivåer (for tre-modus)
+  // Sett default expand ved mount/rows endring
+  useEffect(() => {
+    if (!treeMode) return
+    if (!expandAllByDefault) return
+    // Expand alle noder som har barn
+    const withChild = new Set<string|number>()
+    const idOf = (r: Row) => (r.id ?? r)
+    rowsProp.forEach(r => {
+      if (r.parentId != null) withChild.add(r.parentId)
+    })
+    const next: Record<string|number, boolean> = {}
+    withChild.forEach(id => { next[id] = true })
+    setExpanded(next)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowsProp, treeMode, expandAllByDefault])
+
+  // Synlig liste
   const visible = useMemo(() => {
-    if (!treeMode) {
-      return rowsProp.map(r => ({ row: r, level: 0 }))
-    }
+    if (!treeMode) return rowsProp.map(r => ({ row: r, level: 0 }))
     return buildVisible(rowsProp, expanded)
   }, [rowsProp, expanded, treeMode])
 
-  // Utvalg/markering i *synlig* liste
-  const [sel, setSel] = useState<Selection>({ r1: 0, c1: 1, r2: 0, c2: 1 }) // c>=1 forbi #
+  // Utvalg i synlig liste
+  const [sel, setSel] = useState<Selection>({ r1: 0, c1: 1, r2: 0, c2: 1 })
   const [dragging, setDragging] = useState(false)
   const anchorRef = useRef<{r:number,c:number} | null>(null)
 
@@ -118,36 +134,34 @@ export default function TableCore(props: TableCoreProps) {
   const editorRef = useRef<HTMLInputElement>(null)
 
   // Undo/Redo
-  const { push, undo, redo } = useUndo()
+  const { push, undo, redo, canUndo, canRedo } = useUndo()
 
-  // Valideringsfeil: nøklet per dataIndex + col.key
+  // Feil
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Virtuell rulling: over synlig liste
+  // Virtuell rulling over synlig liste
   const totalHeight = visible.length * rowHeight
   const [scrollTop, setScrollTop] = useState(0)
-  const vpH = vpRef.current?.clientHeight ?? 0
+  const vpH = viewportHeight
   const visibleCount = Math.ceil(vpH / rowHeight) + 6
   const startIndex = clamp(Math.floor(scrollTop / rowHeight) - 3, 0, Math.max(0, visible.length - 1))
   const endIndex = clamp(startIndex + visibleCount, 0, visible.length)
   const topPad = startIndex * rowHeight
   const bottomPad = Math.max(0, totalHeight - topPad - (endIndex - startIndex) * rowHeight)
 
-  /* ===== FOKUS editor ===== */
+  /* ===== Fokus editor ===== */
   useEffect(() => { if (edit && editorRef.current) editorRef.current.focus() }, [edit])
 
   /* ===== Utvalg endret callback ===== */
   useEffect(() => { onSelectionChange?.(normSel(sel)) }, [sel, onSelectionChange])
 
-  /* ===== Verktøy: finn dataIndex fra synlig index ===== */
   const dataIndexAtVisible = (vr: number) => {
     const row = visible[vr]?.row
     if (!row) return -1
-    // map til index i rowsProp
     return rowsProp.indexOf(row)
   }
 
-  /* ===== Navigasjon/Hotkeys ===== */
+  /* ===== Navigasjon/Hotkeys (utvidet) ===== */
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
     const maxR = visible.length - 1
     const maxC = columns.length - 1
@@ -158,29 +172,21 @@ export default function TableCore(props: TableCoreProps) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(applyPatch); return }
 
     // Tre: Expand/Collapse via Ctrl/Cmd+←/→
-    if (e.key === "ArrowLeft" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      toggleExpandAt(s.r2, false)
-      return
-    }
-    if (e.key === "ArrowRight" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      toggleExpandAt(s.r2, true)
-      return
-    }
+    if (e.key === "ArrowLeft" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); toggleExpandAt(s.r2, false); return }
+    if (e.key === "ArrowRight" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); toggleExpandAt(s.r2, true); return }
 
-    // Indrykk/rykk ut (Alt+→ / Alt+←)
+    // Indrykk/rykk ut
     if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); indentSelectionTwoStep(s); return }
     if (e.altKey && e.key === "ArrowLeft")  { e.preventDefault(); outdentSelection(s); return }
 
-    // Flytt opp/ned innen samme parent (Alt+↑/↓)
+    // Flytt opp/ned innen samme parent
     if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault()
       moveSelectionWithinParent(s, e.key === "ArrowDown" ? +1 : -1)
       return
     }
 
-    // Navigasjon basert på fokus
+    // Navigasjon
     let { r2, c2 } = s
     const move = (dr: number, dc: number) => {
       const nr = clamp(r2 + dr, 0, maxR)
@@ -195,6 +201,14 @@ export default function TableCore(props: TableCoreProps) {
     if (e.key === "ArrowDown")  { e.preventDefault(); move(+1, 0); return }
     if (e.key === "Tab")        { e.preventDefault(); move(0, e.shiftKey ? -1 : +1); return }
 
+    // Home/End → start/slutt på raden (hopper over #)
+    if (e.key === "Home") { e.preventDefault(); setSel({ r1: r2, c1: 1, r2, c2: 1 }); return }
+    if (e.key === "End")  { e.preventDefault(); setSel({ r1: r2, c1: maxC, r2, c2: maxC }); return }
+
+    // PageUp/PageDown → en skjerm
+    if (e.key === "PageUp")   { e.preventDefault(); move(-Math.max(1, Math.floor(vpH/rowHeight)-1), 0); return }
+    if (e.key === "PageDown") { e.preventDefault(); move(+Math.max(1, Math.floor(vpH/rowHeight)-1), 0); return }
+
     if (e.key === "Enter") { e.preventDefault(); startEdit(s.r2, s.c2, true); return }
     if (e.key === "Delete") { e.preventDefault(); clearSelection(); return }
 
@@ -203,7 +217,7 @@ export default function TableCore(props: TableCoreProps) {
       startEdit(s.r2, s.c2, false, e.key)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible.length, columns.length, sel, undo, redo, rowsProp, expanded])
+  }, [visible.length, columns.length, sel, undo, redo, rowsProp, expanded, vpH, rowHeight])
 
   const ensureVisible = (rowIndex: number) => {
     const vp = vpRef.current
@@ -213,7 +227,6 @@ export default function TableCore(props: TableCoreProps) {
     else if (y + rowHeight > scrollTop + vp.clientHeight) vp.scrollTop = y - vp.clientHeight + rowHeight
   }
 
-  /* ===== Expand/collapse via caret eller hotkeys ===== */
   const toggleExpandAt = (vr: number, force?: boolean) => {
     if (!treeMode) return
     const dataIdx = dataIndexAtVisible(vr)
@@ -247,7 +260,7 @@ export default function TableCore(props: TableCoreProps) {
 
   /* ===== Redigering + Validering ===== */
   const startEdit = (vr: number, c: number, selectAll: boolean, seed?: string) => {
-    if (c === 0) return // #-kolonne er ikke redigerbar
+    if (c === 0) return
     const col = columns[c]
     if (!col?.editable) return
     const dataIdx = dataIndexAtVisible(vr)
@@ -272,13 +285,11 @@ export default function TableCore(props: TableCoreProps) {
     const key = col.key
     const prev = rowsProp[dataIdx]?.[key]
 
-    // Validering: blokkér commit hvis ugyldig
     if (col.validate) {
       const res = col.validate(value, rowsProp[dataIdx])
       if (res === false || (typeof res === "string" && res.length > 0)) {
         const msg = res === false ? "Ugyldig verdi" : res
         setErrors(e => ({ ...e, [dataIdx + "::" + key]: msg }))
-        // behold editor åpen
         return
       } else {
         setErrors(e => {
@@ -359,8 +370,7 @@ export default function TableCore(props: TableCoreProps) {
     if (!data) return
     const fromIndex = Number(data)
     if (Number.isNaN(fromIndex) || fromIndex === toIndex) return
-    // Ikke la # flyttes bort fra 0
-    if (fromIndex === 0 || toIndex === 0) return
+    if (fromIndex === 0 || toIndex === 0) return // # forblir først
     const next = columns.slice()
     const [moved] = next.splice(fromIndex, 1)
     next.splice(toIndex, 0, moved)
@@ -371,7 +381,6 @@ export default function TableCore(props: TableCoreProps) {
   /* ===== Rad-drag (inkl. blokk) ===== */
   const dragBlockRef = useRef<{ from:number, count:number } | null>(null)
   const onRowDragStart = (vr: number, e: React.DragEvent) => {
-    // Hvis vr innenfor markering: flytt hele blokka, ellers bare den ene raden
     const s = normSel(sel)
     const inBlock = vr >= s.r1 && vr <= s.r2
     const from = inBlock ? s.r1 : vr
@@ -388,16 +397,14 @@ export default function TableCore(props: TableCoreProps) {
     const { from, count } = info
     if (from === toVR) return
 
-    // Behold flytting *innen samme parent* i tre-modus
     const srcDataIdx = dataIndexAtVisible(from)
     const dstDataIdx = dataIndexAtVisible(toVR)
     if (srcDataIdx < 0 || dstDataIdx < 0) return
 
     const parentId = rowsProp[srcDataIdx]?.parentId ?? null
     const sameParent = (rowsProp[dstDataIdx]?.parentId ?? null) === parentId
-    if (treeMode && !sameParent) return // ikke lov å krysse parent i v1
+    if (treeMode && !sameParent) return
 
-    // Bygg ny rekkefølge i data
     const next = rowsProp.slice()
     const block = []
     const dataIdxs: number[] = []
@@ -405,10 +412,7 @@ export default function TableCore(props: TableCoreProps) {
       const di = dataIndexAtVisible(from + i)
       if (di >= 0) { block.push(next[di]); dataIdxs.push(di) }
     }
-    // Fjern i data (baklengs for stabile indekser)
     dataIdxs.sort((a,b)=>b-a).forEach(di => next.splice(di, 1))
-
-    // Finn ny innsettingsindeks i data basert på toVR etter fjerning
     const afterRemoveVisible = buildVisible(next, expanded)
     const toDataIdxAfter = (() => {
       const target = clamp(toVR, 0, afterRemoveVisible.length)
@@ -416,9 +420,7 @@ export default function TableCore(props: TableCoreProps) {
       const row = afterRemoveVisible[target].row
       return next.indexOf(row)
     })()
-
     next.splice(toDataIdxAfter, 0, ...block)
-
     onRowsChange(next)
     onReorderRows?.({ fromIndex: srcDataIdx, toIndex: toDataIdxAfter, count, parentId })
   }
@@ -437,8 +439,6 @@ export default function TableCore(props: TableCoreProps) {
     const me = cur[anchorDI]
     const prev = cur[prevDI]
 
-    // 1) hvis ikke samme level som forrige synlige rad: sett parentId = prev.parentId
-    // 2) ellers gjør til barn av forrige: parentId = prev.id
     const sameLevel =
       (me.parentId ?? null) === (prev.parentId ?? null)
 
@@ -455,7 +455,6 @@ export default function TableCore(props: TableCoreProps) {
     const cur = rowsProp.slice()
     const me = cur[di]
     if (me.parentId == null) return
-    // Rykk ut: sett til forelderens parent
     const parentIdx = cur.findIndex(r => (r.id ?? r) === me.parentId)
     const parent = parentIdx >= 0 ? cur[parentIdx] : undefined
     me.parentId = parent ? (parent.parentId ?? null) : null
@@ -469,7 +468,6 @@ export default function TableCore(props: TableCoreProps) {
     if (startDI < 0) return
     const parentId = rowsProp[startDI]?.parentId ?? null
 
-    // finn neste synlige posisjon med samme parent
     let target = dir > 0 ? s.r2 + 1 : s.r1 - 1
     while (target >= 0 && target < visible.length) {
       const tDI = dataIndexAtVisible(target)
@@ -478,11 +476,9 @@ export default function TableCore(props: TableCoreProps) {
     }
     if (target < 0 || target >= visible.length) return
 
-    // Flytt blokka
-    const e = new DataTransfer() // dummy
+    const e = new DataTransfer()
     dragBlockRef.current = { from: from, count }
     onRowDrop(target, { preventDefault(){}, dataTransfer: e } as any as React.DragEvent)
-    // Oppdater utvalg etter flytt
     const shift = dir > 0 ? +1 : -1
     setSel({ r1: from + shift, c1: s.c1, r2: s.r2 + shift, c2: s.c2 })
   }
@@ -544,7 +540,6 @@ export default function TableCore(props: TableCoreProps) {
         const col = columns[c]
         if (!col.editable) continue
         const val = grid[i][j]
-        // valider
         if (col.validate) {
           const res = col.validate(val, row)
           if (res === false || (typeof res === "string" && res.length > 0)) {
@@ -577,18 +572,18 @@ export default function TableCore(props: TableCoreProps) {
       aria-label="TableCore grid"
       role="grid"
     >
-      {/* Header (med kolonne-drag) */}
+      {/* Header */}
       <div className="tc-header" style={{ gridTemplateColumns: gridCols, height: headerHeight }}>
         {columns.map((c, i) => (
           <div
             key={c.key}
-            className="tc-hcell"
+            className={"tc-hcell" + (i === 0 ? " tc-hcell-hash" : "")}
             role="columnheader"
             aria-colindex={i+1}
-            draggable={i !== 0} /* ikke # */
-            onDragStart={(e) => onHeaderDragStart(i, e)}
-            onDragOver={onHeaderDragOver}
-            onDrop={(e) => onHeaderDrop(i, e)}
+            draggable={i !== 0}
+            onDragStart={(e) => i !== 0 && onHeaderDragStart(i, e)}
+            onDragOver={(e) => i !== 0 && onHeaderDragOver(e)}
+            onDrop={(e) => i !== 0 && onHeaderDrop(i, e)}
           >
             {c.name}
           </div>
@@ -600,6 +595,7 @@ export default function TableCore(props: TableCoreProps) {
         className="tc-viewport"
         ref={vpRef}
         onScroll={(e) => setScrollTop((e.target as HTMLDivElement).scrollTop)}
+        style={{ height: viewportHeight }}
       >
         <div className="tc-canvas" style={{ height: totalHeight }}>
           <div style={{ height: topPad }} />
@@ -627,7 +623,6 @@ export default function TableCore(props: TableCoreProps) {
               >
                 {/* #-kolonnen */}
                 <div className="tc-cell-hash" style={{ paddingLeft: 6 + level*14 }}>
-                  {/* caret */}
                   <span
                     className="tc-caret"
                     onClick={() => toggleExpandAt(vr)}
@@ -635,16 +630,12 @@ export default function TableCore(props: TableCoreProps) {
                   >
                     {hasChildren ? (isExpanded ? "▾" : "▸") : "·"}
                   </span>
-
-                  {/* drag-handle */}
                   <span
                     className="tc-drag"
                     draggable
                     onDragStart={(e) => onRowDragStart(vr, e)}
                     title="Dra for å flytte rad/blokk"
                   >☰</span>
-
-                  {/* radnr, skjul på tom rad */}
                   <span style={{ opacity: isEmpty ? 0 : 0.9 }}>
                     {isEmpty ? "" : (di + 1)}
                   </span>
