@@ -5,40 +5,29 @@ import type {
 } from "./types"
 import { useUndo } from "./useUndo"
 
-/* ==== Props-kontrakt (polert) ==== */
 export type TableCoreProps = {
   columns: Column[]
   rows: Row[]
   onRowsChange: (rows: Row[]) => void
-
-  /* Hendelser */
   onPatch?: (patch: Patch) => void
   onCommit?: (rows: Row[]) => void
   onSelectionChange?: (sel: Selection) => void
   onReorderRows?: (args: ReorderRowsArgs) => void
   onReorderColumns?: (args: ReorderColumnsArgs) => void
-
-  /* Presentasjon */
   rowHeight?: number
   headerHeight?: number
-  /** Setter synlig høyde på viewport (px). Default 60vh tidligere; nå eksplisitt. */
   viewportHeight?: number
-  /** Vis tre-modus hvis true (tolker parentId) */
   treeMode?: boolean
-  /** Start-tilstand: ekspander rot (false) eller alt (true). */
   expandAllByDefault?: boolean
 }
 
 /* ==== Hjelpere ==== */
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v))
-}
+function clamp(v: number, min: number, max: number) { return Math.max(min, Math.min(max, v)) }
 function normSel(a: Selection): Selection {
   const r1 = Math.min(a.r1, a.r2), r2 = Math.max(a.r1, a.r2)
   const c1 = Math.min(a.c1, a.c2), c2 = Math.max(a.c1, a.c2)
   return { r1, c1, r2, c2 }
 }
-/** Bygg synlig liste fra flat rows + expand-state */
 function buildVisible(rows: Row[], expanded: Record<string|number, boolean>) {
   const out: { row: Row, level: number }[] = []
   const levelById = new Map<string|number, number>()
@@ -64,16 +53,11 @@ function buildVisible(rows: Row[], expanded: Record<string|number, boolean>) {
   }
   return out
 }
-
 function allEmpty(row: Row, columns: Column[]) {
-  return columns.every(c => {
-    if (c.key === "#") return true
-    const v = row[c.key]
-    return v === "" || v === undefined || v === null
-  })
+  return columns.every(c => c.key === "#" || row[c.key] === "" || row[c.key] == null)
 }
 
-/* ==== TableCore – polert (Etappe 5) ==== */
+/* ==== TableCore – v1 (med bugfix for dobbel tekst) ==== */
 export default function TableCore(props: TableCoreProps) {
   const {
     columns: columnsProp,
@@ -83,63 +67,41 @@ export default function TableCore(props: TableCoreProps) {
     onReorderRows, onReorderColumns,
     rowHeight = 28,
     headerHeight = 30,
-    viewportHeight = 480,
+    viewportHeight = 520,
     treeMode = true,
-    expandAllByDefault = false,
+    expandAllByDefault = true,
   } = props
 
   const rootRef = useRef<HTMLDivElement>(null)
   const vpRef = useRef<HTMLDivElement>(null)
 
-  // Kolonner inkl. # først
-  const [columns, setColumns] = useState<Column[]>(() => {
-    return [{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp]
-  })
-  useEffect(() => {
-    setColumns([{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp])
-  }, [columnsProp])
+  const [columns, setColumns] = useState<Column[]>(() => [{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp])
+  useEffect(() => { setColumns([{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp]) }, [columnsProp])
 
-  // Expand-state per id
   const [expanded, setExpanded] = useState<Record<string|number, boolean>>({})
-
-  // Sett default expand ved mount/rows endring
   useEffect(() => {
-    if (!treeMode) return
-    if (!expandAllByDefault) return
-    // Expand alle noder som har barn
+    if (!treeMode || !expandAllByDefault) return
     const withChild = new Set<string|number>()
-    const idOf = (r: Row) => (r.id ?? r)
-    rowsProp.forEach(r => {
-      if (r.parentId != null) withChild.add(r.parentId)
-    })
+    rowsProp.forEach(r => { if (r.parentId != null) withChild.add(r.parentId as any) })
     const next: Record<string|number, boolean> = {}
     withChild.forEach(id => { next[id] = true })
     setExpanded(next)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowsProp, treeMode, expandAllByDefault])
 
-  // Synlig liste
-  const visible = useMemo(() => {
-    if (!treeMode) return rowsProp.map(r => ({ row: r, level: 0 }))
-    return buildVisible(rowsProp, expanded)
-  }, [rowsProp, expanded, treeMode])
+  const visible = useMemo(() => treeMode ? buildVisible(rowsProp, expanded) : rowsProp.map(r => ({ row: r, level: 0 })), [rowsProp, expanded, treeMode])
 
-  // Utvalg i synlig liste
   const [sel, setSel] = useState<Selection>({ r1: 0, c1: 1, r2: 0, c2: 1 })
   const [dragging, setDragging] = useState(false)
   const anchorRef = useRef<{r:number,c:number} | null>(null)
 
-  // Redigering
   const [edit, setEdit] = useState<{r:number,c:number,value:string} | null>(null)
   const editorRef = useRef<HTMLInputElement>(null)
 
-  // Undo/Redo
-  const { push, undo, redo, canUndo, canRedo } = useUndo()
-
-  // Feil
+  const { push, undo, redo } = useUndo()
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // Virtuell rulling over synlig liste
+  // Virtuell rulling (over synlig liste)
   const totalHeight = visible.length * rowHeight
   const [scrollTop, setScrollTop] = useState(0)
   const vpH = viewportHeight
@@ -149,44 +111,30 @@ export default function TableCore(props: TableCoreProps) {
   const topPad = startIndex * rowHeight
   const bottomPad = Math.max(0, totalHeight - topPad - (endIndex - startIndex) * rowHeight)
 
-  /* ===== Fokus editor ===== */
   useEffect(() => { if (edit && editorRef.current) editorRef.current.focus() }, [edit])
-
-  /* ===== Utvalg endret callback ===== */
   useEffect(() => { onSelectionChange?.(normSel(sel)) }, [sel, onSelectionChange])
 
   const dataIndexAtVisible = (vr: number) => {
     const row = visible[vr]?.row
-    if (!row) return -1
-    return rowsProp.indexOf(row)
+    return row ? rowsProp.indexOf(row) : -1
   }
 
-  /* ===== Navigasjon/Hotkeys (utvidet) ===== */
+  /* ===== Navigasjon/Hotkeys ===== */
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
     const maxR = visible.length - 1
     const maxC = columns.length - 1
     const s = normSel(sel)
 
-    // Undo/Redo
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(applyPatch); return }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(applyPatch); return }
 
-    // Tre: Expand/Collapse via Ctrl/Cmd+←/→
     if (e.key === "ArrowLeft" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); toggleExpandAt(s.r2, false); return }
     if (e.key === "ArrowRight" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); toggleExpandAt(s.r2, true); return }
 
-    // Indrykk/rykk ut
     if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); indentSelectionTwoStep(s); return }
     if (e.altKey && e.key === "ArrowLeft")  { e.preventDefault(); outdentSelection(s); return }
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); moveSelectionWithinParent(s, e.key === "ArrowDown" ? +1 : -1); return }
 
-    // Flytt opp/ned innen samme parent
-    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      e.preventDefault()
-      moveSelectionWithinParent(s, e.key === "ArrowDown" ? +1 : -1)
-      return
-    }
-
-    // Navigasjon
     let { r2, c2 } = s
     const move = (dr: number, dc: number) => {
       const nr = clamp(r2 + dr, 0, maxR)
@@ -200,19 +148,14 @@ export default function TableCore(props: TableCoreProps) {
     if (e.key === "ArrowUp")    { e.preventDefault(); move(-1, 0); return }
     if (e.key === "ArrowDown")  { e.preventDefault(); move(+1, 0); return }
     if (e.key === "Tab")        { e.preventDefault(); move(0, e.shiftKey ? -1 : +1); return }
+    if (e.key === "Home")       { e.preventDefault(); setSel({ r1: r2, c1: 1, r2, c2: 1 }); return }
+    if (e.key === "End")        { e.preventDefault(); setSel({ r1: r2, c1: maxC, r2, c2: maxC }); return }
+    if (e.key === "PageUp")     { e.preventDefault(); move(-Math.max(1, Math.floor(vpH/rowHeight)-1), 0); return }
+    if (e.key === "PageDown")   { e.preventDefault(); move(+Math.max(1, Math.floor(vpH/rowHeight)-1), 0); return }
 
-    // Home/End → start/slutt på raden (hopper over #)
-    if (e.key === "Home") { e.preventDefault(); setSel({ r1: r2, c1: 1, r2, c2: 1 }); return }
-    if (e.key === "End")  { e.preventDefault(); setSel({ r1: r2, c1: maxC, r2, c2: maxC }); return }
-
-    // PageUp/PageDown → en skjerm
-    if (e.key === "PageUp")   { e.preventDefault(); move(-Math.max(1, Math.floor(vpH/rowHeight)-1), 0); return }
-    if (e.key === "PageDown") { e.preventDefault(); move(+Math.max(1, Math.floor(vpH/rowHeight)-1), 0); return }
-
-    if (e.key === "Enter") { e.preventDefault(); startEdit(s.r2, s.c2, true); return }
+    if (e.key === "Enter")  { e.preventDefault(); startEdit(s.r2, s.c2, true); return }
     if (e.key === "Delete") { e.preventDefault(); clearSelection(); return }
 
-    // Skrivbar – start redigering
     if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
       startEdit(s.r2, s.c2, false, e.key)
     }
@@ -220,8 +163,7 @@ export default function TableCore(props: TableCoreProps) {
   }, [visible.length, columns.length, sel, undo, redo, rowsProp, expanded, vpH, rowHeight])
 
   const ensureVisible = (rowIndex: number) => {
-    const vp = vpRef.current
-    if (!vp) return
+    const vp = vpRef.current; if (!vp) return
     const y = rowIndex * rowHeight
     if (y < scrollTop) vp.scrollTop = y
     else if (y + rowHeight > scrollTop + vp.clientHeight) vp.scrollTop = y - vp.clientHeight + rowHeight
@@ -235,11 +177,7 @@ export default function TableCore(props: TableCoreProps) {
     const id = row.id ?? dataIdx
     const hasChild = rowsProp.some(r => r.parentId === (row.id ?? row))
     if (!hasChild) return
-    setExpanded(prev => {
-      const cur = !!prev[id as string]
-      const nextVal = force === undefined ? !cur : force
-      return { ...prev, [id as string]: nextVal }
-    })
+    setExpanded(prev => ({ ...prev, [id as string]: (force ?? !prev[id as string]) }))
   }
 
   /* ===== Mus: klikk/drag for utvalg ===== */
@@ -265,6 +203,10 @@ export default function TableCore(props: TableCoreProps) {
     if (!col?.editable) return
     const dataIdx = dataIndexAtVisible(vr)
     if (dataIdx < 0) return
+
+    // 🔒 Ikke re-start editoren om vi allerede redigerer samme celle
+    if (edit && edit.r === vr && edit.c === c) return
+
     const raw = rowsProp[dataIdx]?.[col.key] ?? ""
     const value = seed !== undefined ? seed : String(raw ?? "")
     setEdit({ r: vr, c, value })
@@ -292,11 +234,7 @@ export default function TableCore(props: TableCoreProps) {
         setErrors(e => ({ ...e, [dataIdx + "::" + key]: msg }))
         return
       } else {
-        setErrors(e => {
-          const copy = { ...e }
-          delete copy[dataIdx + "::" + key]
-          return copy
-        })
+        setErrors(e => { const copy = { ...e }; delete copy[dataIdx + "::" + key]; return copy })
       }
     }
 
@@ -321,7 +259,6 @@ export default function TableCore(props: TableCoreProps) {
     onCommit?.(nextRows)
   }
 
-  /* ===== Slette utvalg ===== */
   const clearSelection = () => {
     const s = normSel(sel)
     const next = rowsProp.slice()
@@ -348,7 +285,6 @@ export default function TableCore(props: TableCoreProps) {
     }
   }
 
-  /* ===== Editor posisjon ===== */
   const editorRect = useMemo(() => {
     if (!edit) return null
     const { r: vr, c } = edit
@@ -370,7 +306,7 @@ export default function TableCore(props: TableCoreProps) {
     if (!data) return
     const fromIndex = Number(data)
     if (Number.isNaN(fromIndex) || fromIndex === toIndex) return
-    if (fromIndex === 0 || toIndex === 0) return // # forblir først
+    if (fromIndex === 0 || toIndex === 0) return
     const next = columns.slice()
     const [moved] = next.splice(fromIndex, 1)
     next.splice(toIndex, 0, moved)
@@ -425,7 +361,6 @@ export default function TableCore(props: TableCoreProps) {
     onReorderRows?.({ fromIndex: srcDataIdx, toIndex: toDataIdxAfter, count, parentId })
   }
 
-  /* ===== Indent/Outdent + Move (tre-modus) ===== */
   const indentSelectionTwoStep = (s: Selection) => {
     if (!treeMode) return
     const anchor = s.r2
@@ -434,23 +369,15 @@ export default function TableCore(props: TableCoreProps) {
     const anchorDI = dataIndexAtVisible(anchor)
     const prevDI = dataIndexAtVisible(prevVR)
     if (anchorDI < 0 || prevDI < 0) return
-
     const cur = rowsProp.slice()
-    const me = cur[anchorDI]
-    const prev = cur[prevDI]
-
-    const sameLevel =
-      (me.parentId ?? null) === (prev.parentId ?? null)
-
-    const nextParent = sameLevel ? (prev.id ?? prev) : (prev.parentId ?? null)
-    me.parentId = nextParent as any
+    const me = cur[anchorDI]; const prev = cur[prevDI]
+    const sameLevel = (me.parentId ?? null) === (prev.parentId ?? null)
+    me.parentId = (sameLevel ? (prev.id ?? prev) : (prev.parentId ?? null)) as any
     onRowsChange(cur)
   }
-
   const outdentSelection = (s: Selection) => {
     if (!treeMode) return
-    const anchor = s.r2
-    const di = dataIndexAtVisible(anchor)
+    const di = dataIndexAtVisible(s.r2)
     if (di < 0) return
     const cur = rowsProp.slice()
     const me = cur[di]
@@ -460,14 +387,12 @@ export default function TableCore(props: TableCoreProps) {
     me.parentId = parent ? (parent.parentId ?? null) : null
     onRowsChange(cur)
   }
-
   const moveSelectionWithinParent = (s: Selection, dir: 1 | -1) => {
     const from = s.r1
     const count = s.r2 - s.r1 + 1
     const startDI = dataIndexAtVisible(from)
     if (startDI < 0) return
     const parentId = rowsProp[startDI]?.parentId ?? null
-
     let target = dir > 0 ? s.r2 + 1 : s.r1 - 1
     while (target >= 0 && target < visible.length) {
       const tDI = dataIndexAtVisible(target)
@@ -475,7 +400,6 @@ export default function TableCore(props: TableCoreProps) {
       target += dir
     }
     if (target < 0 || target >= visible.length) return
-
     const e = new DataTransfer()
     dragBlockRef.current = { from: from, count }
     onRowDrop(target, { preventDefault(){}, dataTransfer: e } as any as React.DragEvent)
@@ -483,23 +407,18 @@ export default function TableCore(props: TableCoreProps) {
     setSel({ r1: from + shift, c1: s.c1, r2: s.r2 + shift, c2: s.c2 })
   }
 
-  /* ===== Clipboard (Copy/Paste) ===== */
   const onCopy = (e: React.ClipboardEvent) => {
     const s = normSel(sel)
     const lines: string[] = []
     for (let vr = s.r1; vr <= s.r2; vr++) {
       const di = dataIndexAtVisible(vr)
       const parts: string[] = []
-      for (let c = Math.max(1, s.c1); c <= s.c2; c++) {
-        parts.push(String(rowsProp[di]?.[columns[c].key] ?? ""))
-      }
+      for (let c = Math.max(1, s.c1); c <= s.c2; c++) parts.push(String(rowsProp[di]?.[columns[c].key] ?? ""))
       lines.push(parts.join("\t"))
     }
-    const tsv = lines.join("\n")
-    e.clipboardData.setData("text/plain", tsv)
+    e.clipboardData.setData("text/plain", lines.join("\n"))
     e.preventDefault()
   }
-
   function parseClipboard(e: React.ClipboardEvent): string[][] | null {
     const html = e.clipboardData.getData("text/html")
     if (html && html.includes("<table")) {
@@ -514,20 +433,18 @@ export default function TableCore(props: TableCoreProps) {
           })
           return rows
         }
-      } catch { /* ignorer */ }
+      } catch {}
     }
     const txt = e.clipboardData.getData("text/plain")
     if (!txt) return null
     return txt.split(/\r?\n/).map(line => line.split("\t"))
   }
-
   const onPaste = (e: React.ClipboardEvent) => {
     const grid = parseClipboard(e)
     if (!grid || grid.length === 0) return
     e.preventDefault()
     const s = normSel(sel)
     const next = rowsProp.slice()
-
     for (let i = 0; i < grid.length; i++) {
       const vr = s.r1 + i
       if (vr >= visible.length) break
@@ -557,7 +474,6 @@ export default function TableCore(props: TableCoreProps) {
     onCommit?.(next)
   }
 
-  /* ===== Header grid-template-columns ===== */
   const gridCols = useMemo(() => columns.map(c => (c.width ?? 140) + "px").join(" "), [columns])
 
   return (
@@ -572,7 +488,6 @@ export default function TableCore(props: TableCoreProps) {
       aria-label="TableCore grid"
       role="grid"
     >
-      {/* Header */}
       <div className="tc-header" style={{ gridTemplateColumns: gridCols, height: headerHeight }}>
         {columns.map((c, i) => (
           <div
@@ -590,7 +505,6 @@ export default function TableCore(props: TableCoreProps) {
         ))}
       </div>
 
-      {/* Viewport med virtuell rulling */}
       <div
         className="tc-viewport"
         ref={vpRef}
@@ -623,22 +537,11 @@ export default function TableCore(props: TableCoreProps) {
               >
                 {/* #-kolonnen */}
                 <div className="tc-cell-hash" style={{ paddingLeft: 6 + level*14 }}>
-                  <span
-                    className="tc-caret"
-                    onClick={() => toggleExpandAt(vr)}
-                    title={hasChildren ? (isExpanded ? "Skjul barn" : "Vis barn") : ""}
-                  >
+                  <span className="tc-caret" onClick={() => toggleExpandAt(vr)} title={hasChildren ? (isExpanded ? "Skjul barn" : "Vis barn") : ""}>
                     {hasChildren ? (isExpanded ? "▾" : "▸") : "·"}
                   </span>
-                  <span
-                    className="tc-drag"
-                    draggable
-                    onDragStart={(e) => onRowDragStart(vr, e)}
-                    title="Dra for å flytte rad/blokk"
-                  >☰</span>
-                  <span style={{ opacity: isEmpty ? 0 : 0.9 }}>
-                    {isEmpty ? "" : (di + 1)}
-                  </span>
+                  <span className="tc-drag" draggable onDragStart={(e) => onRowDragStart(vr, e)} title="Dra for å flytte rad/blokk">☰</span>
+                  <span style={{ opacity: isEmpty ? 0 : 0.9 }}>{isEmpty ? "" : (di + 1)}</span>
                 </div>
 
                 {/* data-celler */}
@@ -649,6 +552,8 @@ export default function TableCore(props: TableCoreProps) {
                   const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
                   const errKey = di + "::" + col.key
                   const hasErr = !!errors[errKey]
+                  const isEditing = !!edit && edit.r === vr && edit.c === c
+
                   return (
                     <div
                       key={col.key}
@@ -660,9 +565,12 @@ export default function TableCore(props: TableCoreProps) {
                       onDoubleClick={() => startEdit(vr, c, true)}
                       onClick={() => startEdit(vr, c, false)}
                       style={{ background: inSel ? "var(--sel)" : undefined }}
-                      title={hasErr ? errors[errKey] : String(v)}
+                      title={isEditing ? "" : (hasErr ? errors[errKey] : String(v))}
                     >
-                      {String(v)}
+                      {/* 👇 Skjul teksten i cella mens editoren er aktiv, så vi unngår «dobbel tekst» */}
+                      <span style={{ visibility: isEditing ? "hidden" : "visible" }}>
+                        {String(v)}
+                      </span>
                     </div>
                   )
                 })}
@@ -694,8 +602,8 @@ export default function TableCore(props: TableCoreProps) {
               onChange={(e) => setEdit(v => v ? ({ ...v, value: e.target.value }) : v)}
               onBlur={commitEdit}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
-                else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                if (e.key === "Enter") { e.preventDefault(); commitEdit() }
+                else if (e.key === "Escape") { e.preventDefault(); cancelEdit() }
               }}
             />
           )}
