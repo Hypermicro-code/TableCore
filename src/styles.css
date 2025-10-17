@@ -1,0 +1,124 @@
+/* ===== Global mørkt tema + skarpe hjørner ===== */
+:root {
+  --bg: #0b0d12;
+  --bg-elev: #12151d;
+  --fg: #e6e6e6;
+  --muted: #9aa4b2;
+  --accent: #6ea8fe;
+  --danger: #ff6b6b;
+  --grid-border: #1b2130;
+  --sel: #26324a;
+  --sel-border: #6ea8fe;
+  --cell-focus: #1a2232;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+/* ===== Demo layout ===== */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100dvh;
+  gap: 12px;
+  padding: 16px;
+}
+
+.panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--grid-border);
+  border-radius: 0; /* skarpe hjørner */
+  padding: 12px;
+}
+
+/* ===== TableCore ===== */
+.tc-root {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid var(--grid-border);
+  border-radius: 0; /* skarpe hjørner */
+  background: var(--bg-elev);
+  user-select: none;
+  outline: none;
+}
+
+.tc-header {
+  display: grid;
+  background: #0f1420;
+  border-bottom: 1px solid var(--grid-border);
+}
+
+.tc-hcell {
+  padding: 6px 8px;
+  border-right: 1px solid var(--grid-border);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tc-viewport {
+  position: relative;
+  overflow: auto;
+  height: 60vh; /* kan justeres fra prop i neste etappe */
+  background: var(--bg-elev);
+}
+
+.tc-canvas {
+  position: relative;
+}
+
+.tc-row {
+  display: grid;
+  border-bottom: 1px solid var(--grid-border);
+}
+
+.tc-cell {
+  padding: 6px 8px;
+  border-right: 1px solid var(--grid-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tc-cell.tc-focus {
+  background: var(--cell-focus);
+}
+
+/* Utvalg (rektangel) */
+.tc-sel-rect {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid var(--sel-border);
+  outline: 9999px solid rgba(110,168,254,0.08);
+  border-radius: 0;
+}
+
+/* Editor (ingen hvit bakgrunn) */
+.tc-editor {
+  position: absolute;
+  z-index: 2;
+  padding: 0;
+  margin: 0;
+  border: 2px solid var(--sel-border);
+  background: var(--cell-focus);
+  color: var(--fg);
+  font: inherit;
+  height: 100%;
+  width: 100%;
+  outline: none;
+  border-radius: 0;
+}
+
+/* Scrollbar diskret */
+.tc-viewport::-webkit-scrollbar { height: 12px; width: 12px; }
+.tc-viewport::-webkit-scrollbar-thumb { background: #1f2a3d; }
+.tc-viewport::-webkit-scrollbar-track { background: #0d121c; }
