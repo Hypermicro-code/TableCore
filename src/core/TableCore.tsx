@@ -1,21 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { Column, Row, Selection, Patch } from "./types"
+import type {
+  Column, Row, Selection, Patch,
+  ReorderColumnsArgs, ReorderRowsArgs
+} from "./types"
 import { useUndo } from "./useUndo"
 
-/* ==== Props-kontrakt (v1) ==== */
+/* ==== Props-kontrakt (utvidet) ==== */
 export type TableCoreProps = {
   columns: Column[]
   rows: Row[]
   onRowsChange: (rows: Row[]) => void
 
-  /** Hendelser (delmengde i v1) */
+  /* Hendelser */
   onPatch?: (patch: Patch) => void
   onCommit?: (rows: Row[]) => void
   onSelectionChange?: (sel: Selection) => void
+  onReorderRows?: (args: ReorderRowsArgs) => void
+  onReorderColumns?: (args: ReorderColumnsArgs) => void
 
-  /** Presentasjon */
+  /* Presentasjon */
   rowHeight?: number
   headerHeight?: number
+  /** Vis tre-modus hvis true (tolker parentId) */
+  treeMode?: boolean
 }
 
 /* ==== Hjelpere ==== */
@@ -27,21 +34,82 @@ function normSel(a: Selection): Selection {
   const c1 = Math.min(a.c1, a.c2), c2 = Math.max(a.c1, a.c2)
   return { r1, c1, r2, c2 }
 }
+/** Bygg synlig liste fra flat rows + expand-state */
+function buildVisible(rows: Row[], expanded: Record<string|number, boolean>) {
+  // Anta at rows allerede ligger i "preorder" (forelder før barn)
+  const out: { row: Row, level: number }[] = []
+  const levelById = new Map<string|number, number>()
 
-/* ==== TableCore (Etappe 1) ==== */
+  const idOf = (r: Row) => (r.id ?? r)
+  const pidOf = (r: Row) => (r.parentId ?? null)
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    const id = idOf(r)
+    const pid = pidOf(r)
+    let level = 0
+    if (pid != null && levelById.has(pid)) level = (levelById.get(pid) ?? 0) + 1
+    levelById.set(id, level)
+
+    // Hvis forelder er kollapset: skjul
+    let currentPid = pid
+    let visible = true
+    while (currentPid != null) {
+      if (!expanded[currentPid as string]) { visible = false; break }
+      const parent = rows.find(rr => idOf(rr) === currentPid)
+      currentPid = parent ? pidOf(parent) : null
+    }
+    if (visible) out.push({ row: r, level })
+  }
+  return out
+}
+
+function allEmpty(row: Row, columns: Column[]) {
+  return columns.every(c => {
+    if (c.key === "#") return true
+    const v = row[c.key]
+    return v === "" || v === undefined || v === null
+  })
+}
+
+/* ==== TableCore – Etapper 2–4 inkludert ==== */
 export default function TableCore(props: TableCoreProps) {
   const {
-    columns, rows, onRowsChange,
+    columns: columnsProp,
+    rows: rowsProp,
+    onRowsChange,
     onPatch, onCommit, onSelectionChange,
+    onReorderRows, onReorderColumns,
     rowHeight = 28,
     headerHeight = 30,
+    treeMode = true,
   } = props
 
   const rootRef = useRef<HTMLDivElement>(null)
   const vpRef = useRef<HTMLDivElement>(null)
 
-  // Utvalg/markering
-  const [sel, setSel] = useState<Selection>({ r1: 0, c1: 0, r2: 0, c2: 0 })
+  // Internt: vi holder på kolonnerekkefølgen slik at vi kan dras/endres, men synk med prop via key
+  const [columns, setColumns] = useState<Column[]>(() => {
+    // Injiser #-kolonne først
+    return [{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp]
+  })
+  useEffect(() => {
+    setColumns([{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp])
+  }, [columnsProp])
+
+  // Expand-state per id (true = expanded). Rot-nivå vises alltid.
+  const [expanded, setExpanded] = useState<Record<string|number, boolean>>({})
+
+  // Synlig liste med nivåer (for tre-modus)
+  const visible = useMemo(() => {
+    if (!treeMode) {
+      return rowsProp.map(r => ({ row: r, level: 0 }))
+    }
+    return buildVisible(rowsProp, expanded)
+  }, [rowsProp, expanded, treeMode])
+
+  // Utvalg/markering i *synlig* liste
+  const [sel, setSel] = useState<Selection>({ r1: 0, c1: 1, r2: 0, c2: 1 }) // c>=1 forbi #
   const [dragging, setDragging] = useState(false)
   const anchorRef = useRef<{r:number,c:number} | null>(null)
 
@@ -52,47 +120,67 @@ export default function TableCore(props: TableCoreProps) {
   // Undo/Redo
   const { push, undo, redo } = useUndo()
 
-  // Virtuell rulling
-  const totalHeight = rows.length * rowHeight
+  // Valideringsfeil: nøklet per dataIndex + col.key
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  // Virtuell rulling: over synlig liste
+  const totalHeight = visible.length * rowHeight
   const [scrollTop, setScrollTop] = useState(0)
   const vpH = vpRef.current?.clientHeight ?? 0
   const visibleCount = Math.ceil(vpH / rowHeight) + 6
-  const startIndex = clamp(Math.floor(scrollTop / rowHeight) - 3, 0, Math.max(0, rows.length - 1))
-  const endIndex = clamp(startIndex + visibleCount, 0, rows.length)
+  const startIndex = clamp(Math.floor(scrollTop / rowHeight) - 3, 0, Math.max(0, visible.length - 1))
+  const endIndex = clamp(startIndex + visibleCount, 0, visible.length)
   const topPad = startIndex * rowHeight
   const bottomPad = Math.max(0, totalHeight - topPad - (endIndex - startIndex) * rowHeight)
 
-  /* ===== Effekt: fokus ved redigering ===== */
-  useEffect(() => {
-    if (edit && editorRef.current) {
-      editorRef.current.focus()
-    }
-  }, [edit])
+  /* ===== FOKUS editor ===== */
+  useEffect(() => { if (edit && editorRef.current) editorRef.current.focus() }, [edit])
 
   /* ===== Utvalg endret callback ===== */
-  useEffect(() => {
-    onSelectionChange?.(normSel(sel))
-  }, [sel, onSelectionChange])
+  useEffect(() => { onSelectionChange?.(normSel(sel)) }, [sel, onSelectionChange])
 
-  /* ===== Taster på rot ===== */
+  /* ===== Verktøy: finn dataIndex fra synlig index ===== */
+  const dataIndexAtVisible = (vr: number) => {
+    const row = visible[vr]?.row
+    if (!row) return -1
+    // map til index i rowsProp
+    return rowsProp.indexOf(row)
+  }
+
+  /* ===== Navigasjon/Hotkeys ===== */
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const maxR = rows.length - 1
+    const maxR = visible.length - 1
     const maxC = columns.length - 1
     const s = normSel(sel)
 
     // Undo/Redo
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(applyPatch); return }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(applyPatch); return }
+
+    // Tre: Expand/Collapse via Ctrl/Cmd+←/→
+    if (e.key === "ArrowLeft" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      undo(applyPatch)
+      toggleExpandAt(s.r2, false)
       return
     }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+    if (e.key === "ArrowRight" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
-      redo(applyPatch)
+      toggleExpandAt(s.r2, true)
       return
     }
 
-    // Navigasjon – basert på fokuscelle (s.r2/c2)
+    // Indrykk/rykk ut (Alt+→ / Alt+←)
+    if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); indentSelectionTwoStep(s); return }
+    if (e.altKey && e.key === "ArrowLeft")  { e.preventDefault(); outdentSelection(s); return }
+
+    // Flytt opp/ned innen samme parent (Alt+↑/↓)
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault()
+      moveSelectionWithinParent(s, e.key === "ArrowDown" ? +1 : -1)
+      return
+    }
+
+    // Navigasjon basert på fokus
     let { r2, c2 } = s
     const move = (dr: number, dc: number) => {
       const nr = clamp(r2 + dr, 0, maxR)
@@ -101,27 +189,21 @@ export default function TableCore(props: TableCoreProps) {
       ensureVisible(nr)
     }
 
-    if (e.key === "ArrowLeft") { e.preventDefault(); move(0, -1); return }
+    if (e.key === "ArrowLeft")  { e.preventDefault(); move(0, -1); return }
     if (e.key === "ArrowRight") { e.preventDefault(); move(0, +1); return }
-    if (e.key === "ArrowUp") { e.preventDefault(); move(-1, 0); return }
-    if (e.key === "ArrowDown") { e.preventDefault(); move(+1, 0); return }
-    if (e.key === "Tab") { e.preventDefault(); move(0, e.shiftKey ? -1 : +1); return }
-    if (e.key === "Enter") {
-      e.preventDefault()
-      // Enter starter redigering på fokus
-      startEdit(s.r2, s.c2, true)
-      return
-    }
-    if (e.key === "Delete") {
-      e.preventDefault()
-      clearSelection()
-      return
-    }
-    // Alfanumerisk – start redigering direkte
+    if (e.key === "ArrowUp")    { e.preventDefault(); move(-1, 0); return }
+    if (e.key === "ArrowDown")  { e.preventDefault(); move(+1, 0); return }
+    if (e.key === "Tab")        { e.preventDefault(); move(0, e.shiftKey ? -1 : +1); return }
+
+    if (e.key === "Enter") { e.preventDefault(); startEdit(s.r2, s.c2, true); return }
+    if (e.key === "Delete") { e.preventDefault(); clearSelection(); return }
+
+    // Skrivbar – start redigering
     if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
       startEdit(s.r2, s.c2, false, e.key)
     }
-  }, [rows.length, columns.length, sel, undo, redo])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible.length, columns.length, sel, undo, redo, rowsProp, expanded])
 
   const ensureVisible = (rowIndex: number) => {
     const vp = vpRef.current
@@ -131,36 +213,48 @@ export default function TableCore(props: TableCoreProps) {
     else if (y + rowHeight > scrollTop + vp.clientHeight) vp.scrollTop = y - vp.clientHeight + rowHeight
   }
 
-  /* ===== Mus: klikk, dra for rektangel ===== */
-  const cellMouseDown = (r: number, c: number, e: React.MouseEvent) => {
-    // Shift = rektangel fra eksisterende anker
-    if (e.shiftKey) {
-      const a = anchorRef.current ?? { r: sel.r1, c: sel.c1 }
-      setSel({ r1: a.r, c1: a.c, r2: r, c2: c })
-      setDragging(true)
-      return
-    }
-    // Annet: sett anker og enkeltutvalg
-    anchorRef.current = { r, c }
-    setSel({ r1: r, c1: c, r2: r, c2: c })
-    setDragging(true)
+  /* ===== Expand/collapse via caret eller hotkeys ===== */
+  const toggleExpandAt = (vr: number, force?: boolean) => {
+    if (!treeMode) return
+    const dataIdx = dataIndexAtVisible(vr)
+    if (dataIdx < 0) return
+    const row = rowsProp[dataIdx]
+    const id = row.id ?? dataIdx
+    const hasChild = rowsProp.some(r => r.parentId === (row.id ?? row))
+    if (!hasChild) return
+    setExpanded(prev => {
+      const cur = !!prev[id as string]
+      const nextVal = force === undefined ? !cur : force
+      return { ...prev, [id as string]: nextVal }
+    })
   }
 
+  /* ===== Mus: klikk/drag for utvalg ===== */
+  const cellMouseDown = (r: number, c: number, e: React.MouseEvent) => {
+    if (e.shiftKey) {
+      const a = anchorRef.current ?? { r: sel.r1, c: sel.c1 }
+      setSel({ r1: a.r, c1: a.c, r2: r, c2: c }); setDragging(true); return
+    }
+    anchorRef.current = { r, c }
+    setSel({ r1: r, c1: c, r2: r, c2: c }); setDragging(true)
+  }
   const cellMouseEnter = (r: number, c: number) => {
     if (!dragging) return
     const a = anchorRef.current ?? { r, c }
     setSel({ r1: a.r, c1: a.c, r2: r, c2: c })
   }
-
   const onMouseUp = () => setDragging(false)
 
-  /* ===== Redigering ===== */
-  const startEdit = (r: number, c: number, selectAll: boolean, seed?: string) => {
-    const key = columns[c].key
-    const raw = rows[r]?.[key] ?? ""
+  /* ===== Redigering + Validering ===== */
+  const startEdit = (vr: number, c: number, selectAll: boolean, seed?: string) => {
+    if (c === 0) return // #-kolonne er ikke redigerbar
+    const col = columns[c]
+    if (!col?.editable) return
+    const dataIdx = dataIndexAtVisible(vr)
+    if (dataIdx < 0) return
+    const raw = rowsProp[dataIdx]?.[col.key] ?? ""
     const value = seed !== undefined ? seed : String(raw ?? "")
-    setEdit({ r, c, value })
-    // selectAll håndteres i useEffect + dblclick
+    setEdit({ r: vr, c, value })
     setTimeout(() => {
       if (editorRef.current) {
         if (selectAll) editorRef.current.select()
@@ -171,14 +265,35 @@ export default function TableCore(props: TableCoreProps) {
 
   const commitEdit = () => {
     if (!edit) return
-    const { r, c, value } = edit
-    const key = columns[c].key
-    const prev = rows[r]?.[key]
+    const { r: vr, c, value } = edit
+    const dataIdx = dataIndexAtVisible(vr)
+    if (dataIdx < 0) { setEdit(null); return }
+    const col = columns[c]
+    const key = col.key
+    const prev = rowsProp[dataIdx]?.[key]
+
+    // Validering: blokkér commit hvis ugyldig
+    if (col.validate) {
+      const res = col.validate(value, rowsProp[dataIdx])
+      if (res === false || (typeof res === "string" && res.length > 0)) {
+        const msg = res === false ? "Ugyldig verdi" : res
+        setErrors(e => ({ ...e, [dataIdx + "::" + key]: msg }))
+        // behold editor åpen
+        return
+      } else {
+        setErrors(e => {
+          const copy = { ...e }
+          delete copy[dataIdx + "::" + key]
+          return copy
+        })
+      }
+    }
+
     if (prev === value) { setEdit(null); return }
-    const nextRows = rows.slice()
-    nextRows[r] = { ...nextRows[r], [key]: value }
+    const nextRows = rowsProp.slice()
+    nextRows[dataIdx] = { ...nextRows[dataIdx], [key]: value }
     onRowsChange(nextRows)
-    const patch: Patch = { rowIndex: r, key, prev, next: value }
+    const patch: Patch = { rowIndex: dataIdx, key, prev, next: value }
     push(patch)
     onPatch?.(patch)
     onCommit?.(nextRows)
@@ -188,25 +303,29 @@ export default function TableCore(props: TableCoreProps) {
   const cancelEdit = () => setEdit(null)
 
   const applyPatch = (p: Patch) => {
-    const nextRows = rows.slice()
+    const nextRows = rowsProp.slice()
     nextRows[p.rowIndex] = { ...nextRows[p.rowIndex], [p.key]: p.next }
     onRowsChange(nextRows)
     onPatch?.(p)
     onCommit?.(nextRows)
   }
 
-  /* ===== Delete for hele utvalget ===== */
+  /* ===== Slette utvalg ===== */
   const clearSelection = () => {
     const s = normSel(sel)
-    const next = rows.slice()
+    const next = rowsProp.slice()
     const patches: Patch[] = []
-    for (let r = s.r1; r <= s.r2; r++) {
-      for (let c = s.c1; c <= s.c2; c++) {
-        const key = columns[c].key
-        const prev = next[r]?.[key]
+    for (let vr = s.r1; vr <= s.r2; vr++) {
+      const rdx = dataIndexAtVisible(vr)
+      if (rdx < 0) continue
+      for (let c = Math.max(1, s.c1); c <= s.c2; c++) {
+        const col = columns[c]
+        const key = col.key
+        if (!col.editable) continue
+        const prev = next[rdx]?.[key]
         if (prev !== "" && prev !== undefined) {
-          next[r] = { ...next[r], [key]: "" }
-          patches.push({ rowIndex: r, key, prev, next: "" })
+          next[rdx] = { ...next[rdx], [key]: "" }
+          patches.push({ rowIndex: rdx, key, prev, next: "" })
         }
       }
     }
@@ -218,16 +337,230 @@ export default function TableCore(props: TableCoreProps) {
     }
   }
 
-  /* ===== Editor posisjon/bredde/høyde ===== */
+  /* ===== Editor posisjon ===== */
   const editorRect = useMemo(() => {
     if (!edit) return null
-    const { r, c } = edit
-    const y = r * rowHeight + headerHeight - scrollTop
+    const { r: vr, c } = edit
+    const y = vr * rowHeight + headerHeight - scrollTop
     let x = 0
     for (let i = 0; i < c; i++) x += (columns[i].width ?? 140)
     const w = (columns[c].width ?? 140)
     return { top: y, left: x, width: w, height: rowHeight }
   }, [edit, columns, rowHeight, headerHeight, scrollTop])
+
+  /* ===== Kolonne-drag ===== */
+  const onHeaderDragStart = (colIndex: number, e: React.DragEvent) => {
+    e.dataTransfer.setData("text/x-col", String(colIndex))
+    e.dataTransfer.effectAllowed = "move"
+  }
+  const onHeaderDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = "move" }
+  const onHeaderDrop = (toIndex: number, e: React.DragEvent) => {
+    const data = e.dataTransfer.getData("text/x-col")
+    if (!data) return
+    const fromIndex = Number(data)
+    if (Number.isNaN(fromIndex) || fromIndex === toIndex) return
+    // Ikke la # flyttes bort fra 0
+    if (fromIndex === 0 || toIndex === 0) return
+    const next = columns.slice()
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moved)
+    setColumns(next)
+    onReorderColumns?.({ fromIndex, toIndex })
+  }
+
+  /* ===== Rad-drag (inkl. blokk) ===== */
+  const dragBlockRef = useRef<{ from:number, count:number } | null>(null)
+  const onRowDragStart = (vr: number, e: React.DragEvent) => {
+    // Hvis vr innenfor markering: flytt hele blokka, ellers bare den ene raden
+    const s = normSel(sel)
+    const inBlock = vr >= s.r1 && vr <= s.r2
+    const from = inBlock ? s.r1 : vr
+    const count = inBlock ? (s.r2 - s.r1 + 1) : 1
+    dragBlockRef.current = { from, count }
+    e.dataTransfer.setData("text/x-row", String(from))
+    e.dataTransfer.effectAllowed = "move"
+  }
+  const onRowDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = "move" }
+  const onRowDrop = (toVR: number, e: React.DragEvent) => {
+    e.preventDefault()
+    const info = dragBlockRef.current
+    if (!info) return
+    const { from, count } = info
+    if (from === toVR) return
+
+    // Behold flytting *innen samme parent* i tre-modus
+    const srcDataIdx = dataIndexAtVisible(from)
+    const dstDataIdx = dataIndexAtVisible(toVR)
+    if (srcDataIdx < 0 || dstDataIdx < 0) return
+
+    const parentId = rowsProp[srcDataIdx]?.parentId ?? null
+    const sameParent = (rowsProp[dstDataIdx]?.parentId ?? null) === parentId
+    if (treeMode && !sameParent) return // ikke lov å krysse parent i v1
+
+    // Bygg ny rekkefølge i data
+    const next = rowsProp.slice()
+    const block = []
+    const dataIdxs: number[] = []
+    for (let i = 0; i < count; i++) {
+      const di = dataIndexAtVisible(from + i)
+      if (di >= 0) { block.push(next[di]); dataIdxs.push(di) }
+    }
+    // Fjern i data (baklengs for stabile indekser)
+    dataIdxs.sort((a,b)=>b-a).forEach(di => next.splice(di, 1))
+
+    // Finn ny innsettingsindeks i data basert på toVR etter fjerning
+    const afterRemoveVisible = buildVisible(next, expanded)
+    const toDataIdxAfter = (() => {
+      const target = clamp(toVR, 0, afterRemoveVisible.length)
+      if (target >= afterRemoveVisible.length) return next.length
+      const row = afterRemoveVisible[target].row
+      return next.indexOf(row)
+    })()
+
+    next.splice(toDataIdxAfter, 0, ...block)
+
+    onRowsChange(next)
+    onReorderRows?.({ fromIndex: srcDataIdx, toIndex: toDataIdxAfter, count, parentId })
+  }
+
+  /* ===== Indent/Outdent + Move (tre-modus) ===== */
+  const indentSelectionTwoStep = (s: Selection) => {
+    if (!treeMode) return
+    const anchor = s.r2
+    const prevVR = anchor - 1
+    if (prevVR < 0) return
+    const anchorDI = dataIndexAtVisible(anchor)
+    const prevDI = dataIndexAtVisible(prevVR)
+    if (anchorDI < 0 || prevDI < 0) return
+
+    const cur = rowsProp.slice()
+    const me = cur[anchorDI]
+    const prev = cur[prevDI]
+
+    // 1) hvis ikke samme level som forrige synlige rad: sett parentId = prev.parentId
+    // 2) ellers gjør til barn av forrige: parentId = prev.id
+    const sameLevel =
+      (me.parentId ?? null) === (prev.parentId ?? null)
+
+    const nextParent = sameLevel ? (prev.id ?? prev) : (prev.parentId ?? null)
+    me.parentId = nextParent as any
+    onRowsChange(cur)
+  }
+
+  const outdentSelection = (s: Selection) => {
+    if (!treeMode) return
+    const anchor = s.r2
+    const di = dataIndexAtVisible(anchor)
+    if (di < 0) return
+    const cur = rowsProp.slice()
+    const me = cur[di]
+    if (me.parentId == null) return
+    // Rykk ut: sett til forelderens parent
+    const parentIdx = cur.findIndex(r => (r.id ?? r) === me.parentId)
+    const parent = parentIdx >= 0 ? cur[parentIdx] : undefined
+    me.parentId = parent ? (parent.parentId ?? null) : null
+    onRowsChange(cur)
+  }
+
+  const moveSelectionWithinParent = (s: Selection, dir: 1 | -1) => {
+    const from = s.r1
+    const count = s.r2 - s.r1 + 1
+    const startDI = dataIndexAtVisible(from)
+    if (startDI < 0) return
+    const parentId = rowsProp[startDI]?.parentId ?? null
+
+    // finn neste synlige posisjon med samme parent
+    let target = dir > 0 ? s.r2 + 1 : s.r1 - 1
+    while (target >= 0 && target < visible.length) {
+      const tDI = dataIndexAtVisible(target)
+      if (tDI >= 0 && (rowsProp[tDI]?.parentId ?? null) === parentId) break
+      target += dir
+    }
+    if (target < 0 || target >= visible.length) return
+
+    // Flytt blokka
+    const e = new DataTransfer() // dummy
+    dragBlockRef.current = { from: from, count }
+    onRowDrop(target, { preventDefault(){}, dataTransfer: e } as any as React.DragEvent)
+    // Oppdater utvalg etter flytt
+    const shift = dir > 0 ? +1 : -1
+    setSel({ r1: from + shift, c1: s.c1, r2: s.r2 + shift, c2: s.c2 })
+  }
+
+  /* ===== Clipboard (Copy/Paste) ===== */
+  const onCopy = (e: React.ClipboardEvent) => {
+    const s = normSel(sel)
+    const lines: string[] = []
+    for (let vr = s.r1; vr <= s.r2; vr++) {
+      const di = dataIndexAtVisible(vr)
+      const parts: string[] = []
+      for (let c = Math.max(1, s.c1); c <= s.c2; c++) {
+        parts.push(String(rowsProp[di]?.[columns[c].key] ?? ""))
+      }
+      lines.push(parts.join("\t"))
+    }
+    const tsv = lines.join("\n")
+    e.clipboardData.setData("text/plain", tsv)
+    e.preventDefault()
+  }
+
+  function parseClipboard(e: React.ClipboardEvent): string[][] | null {
+    const html = e.clipboardData.getData("text/html")
+    if (html && html.includes("<table")) {
+      try {
+        const doc = new DOMParser().parseFromString(html, "text/html")
+        const table = doc.querySelector("table")
+        if (table) {
+          const rows: string[][] = []
+          table.querySelectorAll("tr").forEach(tr => {
+            const cells = Array.from(tr.querySelectorAll("td,th")).map(td => td.textContent ?? "")
+            rows.push(cells)
+          })
+          return rows
+        }
+      } catch { /* ignorer */ }
+    }
+    const txt = e.clipboardData.getData("text/plain")
+    if (!txt) return null
+    return txt.split(/\r?\n/).map(line => line.split("\t"))
+  }
+
+  const onPaste = (e: React.ClipboardEvent) => {
+    const grid = parseClipboard(e)
+    if (!grid || grid.length === 0) return
+    e.preventDefault()
+    const s = normSel(sel)
+    const next = rowsProp.slice()
+
+    for (let i = 0; i < grid.length; i++) {
+      const vr = s.r1 + i
+      if (vr >= visible.length) break
+      const di = dataIndexAtVisible(vr)
+      if (di < 0) continue
+      const row = { ...next[di] }
+      for (let j = 0; j < grid[i].length; j++) {
+        const c = s.c1 + j
+        if (c <= 0 || c >= columns.length) break
+        const col = columns[c]
+        if (!col.editable) continue
+        const val = grid[i][j]
+        // valider
+        if (col.validate) {
+          const res = col.validate(val, row)
+          if (res === false || (typeof res === "string" && res.length > 0)) {
+            setErrors(e => ({ ...e, [di + "::" + col.key]: (res === false ? "Ugyldig verdi" : String(res)) }))
+            continue
+          } else {
+            setErrors(e => { const copy = { ...e }; delete copy[di + "::" + col.key]; return copy })
+          }
+        }
+        row[col.key] = val
+      }
+      next[di] = row
+    }
+    onRowsChange(next)
+    onCommit?.(next)
+  }
 
   /* ===== Header grid-template-columns ===== */
   const gridCols = useMemo(() => columns.map(c => (c.width ?? 140) + "px").join(" "), [columns])
@@ -239,13 +572,24 @@ export default function TableCore(props: TableCoreProps) {
       tabIndex={0}
       onKeyDown={onKeyDown}
       onMouseUp={onMouseUp}
+      onCopy={onCopy}
+      onPaste={onPaste}
       aria-label="TableCore grid"
       role="grid"
     >
-      {/* Header */}
+      {/* Header (med kolonne-drag) */}
       <div className="tc-header" style={{ gridTemplateColumns: gridCols, height: headerHeight }}>
         {columns.map((c, i) => (
-          <div key={c.key} className="tc-hcell" role="columnheader" aria-colindex={i+1}>
+          <div
+            key={c.key}
+            className="tc-hcell"
+            role="columnheader"
+            aria-colindex={i+1}
+            draggable={i !== 0} /* ikke # */
+            onDragStart={(e) => onHeaderDragStart(i, e)}
+            onDragOver={onHeaderDragOver}
+            onDrop={(e) => onHeaderDrop(i, e)}
+          >
             {c.name}
           </div>
         ))}
@@ -259,38 +603,73 @@ export default function TableCore(props: TableCoreProps) {
       >
         <div className="tc-canvas" style={{ height: totalHeight }}>
           <div style={{ height: topPad }} />
-          {rows.slice(startIndex, endIndex).map((row, iLocal) => {
-            const r = startIndex + iLocal
+
+          {visible.slice(startIndex, endIndex).map((vrow, iLocal) => {
+            const vr = startIndex + iLocal
+            const di = dataIndexAtVisible(vr)
+            const dataRow = rowsProp[di]
+            const isEmpty = allEmpty(dataRow, columns)
+            const level = vrow.level
+            const clsLevel = "tc-level-" + String(Math.min(level, 4))
             const rowSel = normSel(sel)
+            const hasChildren = rowsProp.some(r => (r.parentId ?? null) === (dataRow.id ?? dataRow))
+            const isExpanded = !!expanded[(dataRow.id ?? di) as string]
+
             return (
               <div
-                key={r}
-                className="tc-row"
+                key={di + "-" + vr}
+                className={`tc-row ${clsLevel}`}
                 role="row"
-                aria-rowindex={r+1}
+                aria-rowindex={vr+1}
                 style={{ gridTemplateColumns: gridCols, height: rowHeight }}
+                onDragOver={onRowDragOver}
+                onDrop={(e) => onRowDrop(vr, e)}
               >
-                {columns.map((col, c) => {
-                  const v = row[col.key] ?? ""
-                  const focused = r === rowSel.r2 && c === rowSel.c2
-                  const inSel = r >= rowSel.r1 && r <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
+                {/* #-kolonnen */}
+                <div className="tc-cell-hash" style={{ paddingLeft: 6 + level*14 }}>
+                  {/* caret */}
+                  <span
+                    className="tc-caret"
+                    onClick={() => toggleExpandAt(vr)}
+                    title={hasChildren ? (isExpanded ? "Skjul barn" : "Vis barn") : ""}
+                  >
+                    {hasChildren ? (isExpanded ? "▾" : "▸") : "·"}
+                  </span>
+
+                  {/* drag-handle */}
+                  <span
+                    className="tc-drag"
+                    draggable
+                    onDragStart={(e) => onRowDragStart(vr, e)}
+                    title="Dra for å flytte rad/blokk"
+                  >☰</span>
+
+                  {/* radnr, skjul på tom rad */}
+                  <span style={{ opacity: isEmpty ? 0 : 0.9 }}>
+                    {isEmpty ? "" : (di + 1)}
+                  </span>
+                </div>
+
+                {/* data-celler */}
+                {columns.slice(1).map((col, idx) => {
+                  const c = 1 + idx
+                  const v = dataRow[col.key] ?? ""
+                  const focused = vr === rowSel.r2 && c === rowSel.c2
+                  const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
+                  const errKey = di + "::" + col.key
+                  const hasErr = !!errors[errKey]
                   return (
                     <div
                       key={col.key}
-                      className={"tc-cell" + (focused ? " tc-focus" : "")}
+                      className={"tc-cell" + (focused ? " tc-focus" : "") + (hasErr ? " tc-cell-error" : "")}
                       role="gridcell"
                       aria-colindex={c+1}
-                      onMouseDown={(e) => cellMouseDown(r, c, e)}
-                      onMouseEnter={() => cellMouseEnter(r, c)}
-                      onDoubleClick={() => startEdit(r, c, true)}
-                      onClick={() => {
-                        // Krav: klikk = start redigering
-                        startEdit(r, c, false)
-                      }}
-                      style={{
-                        background: inSel ? "var(--sel)" : undefined
-                      }}
-                      title={String(v)}
+                      onMouseDown={(e) => cellMouseDown(vr, c, e)}
+                      onMouseEnter={() => cellMouseEnter(vr, c)}
+                      onDoubleClick={() => startEdit(vr, c, true)}
+                      onClick={() => startEdit(vr, c, false)}
+                      style={{ background: inSel ? "var(--sel)" : undefined }}
+                      title={hasErr ? errors[errKey] : String(v)}
                     >
                       {String(v)}
                     </div>
@@ -299,24 +678,19 @@ export default function TableCore(props: TableCoreProps) {
               </div>
             )
           })}
+
           <div style={{ height: bottomPad }} />
 
           {/* Rektangel-ramme for utvalg */}
           {(() => {
             const s = normSel(sel)
-            // Beregn posisjon relativt til viewport-scroll
             const top = s.r1 * rowHeight + headerHeight - scrollTop
             let left = 0
             for (let i = 0; i < s.c1; i++) left += (columns[i].width ?? 140)
             const width = Array.from({length: (s.c2 - s.c1 + 1)})
               .reduce((acc, _, idx) => acc + (columns[s.c1 + idx].width ?? 140), 0)
             const height = (s.r2 - s.r1 + 1) * rowHeight
-            return (
-              <div
-                className="tc-sel-rect"
-                style={{ top, left, width, height }}
-              />
-            )
+            return <div className="tc-sel-rect" style={{ top, left, width, height }} />
           })()}
 
           {/* Editor */}
