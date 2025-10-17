@@ -617,20 +617,42 @@ export default function TableCore(props: TableCoreProps) {
                   </span>
                 </div>
 
-                {/* data-celler */}
-                {columns.slice(1).map((col, idx) => {
-                  // 🔒 Guard for noUncheckedIndexedAccess
-                  if (!col) return <div key={`empty-col-${idx}`} className="tc-cell" aria-colindex={idx + 2} />
-                  const c = 1 + idx
-                  const v = String((dataRow as Row)[col.key] ?? "")
+                                {/* data-celler */}
+                {Array.from({ length: Math.max(0, columns.length - 1) }).map((_, idx) => {
+                  const safeIdx = 1 + idx
+                  const colMaybe = columns[safeIdx]
+                  if (!colMaybe) {
+                    // Eksplicit tom celle hvis TS mener kolonnen kan være undefined
+                    return (
+                      <div
+                        key={`empty-col-${idx}`}
+                        className="tc-cell"
+                        role="gridcell"
+                        aria-colindex={safeIdx + 1}
+                        onMouseDown={(e) => cellMouseDown(vr, safeIdx, e)}
+                        onMouseEnter={() => cellMouseEnter(vr, safeIdx)}
+                      />
+                    )
+                  }
+
+                  // Etter guard: fortell TS at vi GARANTERER at kolonnen finnes
+                  const col = colMaybe as Column
+                  const c = safeIdx
+
+                  const key = col.key
+                  const raw = (dataRow as Row)[key]
+                  const v = String(raw ?? "")
+
+                  const rowSel = normSel(sel)
                   const focused = vr === rowSel.r2 && c === rowSel.c2
                   const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
-                  const errKey = di + "::" + col.key
+                  const errKey = `${di}::${key}`
                   const hasErr = !!errors[errKey]
                   const isEditing = !!editingCell && editingCell.r === vr && editingCell.c === c
+
                   return (
                     <div
-                      key={col.key}
+                      key={key}
                       className={"tc-cell" + (focused ? " tc-focus" : "") + (hasErr ? " tc-cell-error" : "")}
                       role="gridcell"
                       aria-colindex={c + 1}
@@ -648,9 +670,7 @@ export default function TableCore(props: TableCoreProps) {
                     </div>
                   )
                 })}
-              </div>
-            )
-          })}
+
 
           <div style={{ height: bottomPad }} />
 
