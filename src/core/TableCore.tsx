@@ -356,14 +356,11 @@ export default function TableCore(props: TableCoreProps) {
   const dragBlockRef = useRef<{ from: number; count: number } | null>(null)
   const onRowDragStart = (vr: number, e: React.DragEvent) => {
     const s = normSel(sel)
-    theBlock:
-    {
-      const inBlock = vr >= s.r1 && vr <= s.r2
-      const from = inBlock ? s.r1 : vr
-      const count = inBlock ? (s.r2 - s.r1 + 1) : 1
-      dragBlockRef.current = { from, count }
-    }
-    e.dataTransfer.setData("text/x-row", String(vr))
+    const inBlock = vr >= s.r1 && vr <= s.r2
+    const from = inBlock ? s.r1 : vr
+    const count = inBlock ? (s.r2 - s.r1 + 1) : 1
+    dragBlockRef.current = { from, count }
+    e.dataTransfer.setData("text/x-row", String(from))
     e.dataTransfer.effectAllowed = "move"
   }
   const onRowDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = "move" }
@@ -476,7 +473,7 @@ export default function TableCore(props: TableCoreProps) {
       try {
         const doc = new DOMParser().parseFromString(html, "text/html")
         const table = doc.querySelector("table")
-      if (table) {
+        if (table) {
           const rows: string[][] = []
           table.querySelectorAll("tr").forEach(tr => {
             const cells = Array.from(tr.querySelectorAll("td,th")).map(td => td.textContent ?? "")
@@ -617,33 +614,26 @@ export default function TableCore(props: TableCoreProps) {
                   </span>
                 </div>
 
-                                {/* data-celler */}
+                {/* data-celler */}
                 {Array.from({ length: Math.max(0, columns.length - 1) }).map((_, idx) => {
-                  const safeIdx = 1 + idx
-                  const colMaybe = columns[safeIdx]
+                  const c = 1 + idx
+                  const colMaybe = columns[c]
                   if (!colMaybe) {
-                    // Eksplicit tom celle hvis TS mener kolonnen kan være undefined
                     return (
                       <div
                         key={`empty-col-${idx}`}
                         className="tc-cell"
                         role="gridcell"
-                        aria-colindex={safeIdx + 1}
-                        onMouseDown={(e) => cellMouseDown(vr, safeIdx, e)}
-                        onMouseEnter={() => cellMouseEnter(vr, safeIdx)}
+                        aria-colindex={c + 1}
+                        onMouseDown={(e) => cellMouseDown(vr, c, e)}
+                        onMouseEnter={() => cellMouseEnter(vr, c)}
                       />
                     )
                   }
-
-                  // Etter guard: fortell TS at vi GARANTERER at kolonnen finnes
                   const col = colMaybe as Column
-                  const c = safeIdx
-
                   const key = col.key
                   const raw = (dataRow as Row)[key]
                   const v = String(raw ?? "")
-
-                  const rowSel = normSel(sel)
                   const focused = vr === rowSel.r2 && c === rowSel.c2
                   const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
                   const errKey = `${di}::${key}`
@@ -663,14 +653,15 @@ export default function TableCore(props: TableCoreProps) {
                       style={{ background: inSel ? "var(--sel)" : undefined }}
                       title={isEditing ? "" : (hasErr ? errors[errKey] : v)}
                     >
-                      {/* Skjul teksten mens editoren er aktiv for å unngå dobbel visning */}
                       <span style={{ visibility: isEditing ? "hidden" : "visible" }}>
                         {v}
                       </span>
                     </div>
                   )
                 })}
-
+              </div>
+            )
+          })}
 
           <div style={{ height: bottomPad }} />
 
