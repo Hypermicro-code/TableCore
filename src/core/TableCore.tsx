@@ -32,30 +32,39 @@ const colWidth = (cols: Column[], i: number) => (cols[i]?.width ?? 140)
 const idOf = (r: Row, idx: number) => (r.id ?? idx)
 const pidOf = (r: Row) => (r.parentId ?? null)
 
-/** Bygger synlig liste fra flat rows + expand-state – helt nullsikkert */
+/** Synlig liste – 100% null-sikker under strict + noUncheckedIndexedAccess */
 function buildVisible(rows: Row[], expanded: Record<string | number, boolean>) {
   const out: { row: Row; level: number }[] = []
-  // rask tilgang: id -> index
+
+  // id → index (sikker)
   const indexById = new Map<string | number, number>()
-  for (let i = 0; i < rows.length; i++) indexById.set(idOf(rows[i], i), i)
+  for (let i = 0; i < rows.length; i++) {
+    const rr = rows[i]
+    if (!rr) continue
+    indexById.set(idOf(rr, i), i)
+  }
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
+    if (!r) continue
+
     let level = 0
     let visible = true
 
-    // Gå oppover foreldre-lenken; stopp om noe ikke er expanded
     let currentPid = pidOf(r)
     const guard = new Set<string | number>()
+
     while (currentPid != null) {
-      if (guard.has(currentPid)) { visible = false; break } // vern mot syklus
+      if (guard.has(currentPid)) { visible = false; break } // verne mot syklus
       guard.add(currentPid)
 
       if (!expanded[currentPid]) { visible = false; break }
       const pIndex = indexById.get(currentPid)
-      if (pIndex == null) break // forelder ikke i lista (tillater synlig)
+      if (pIndex == null) break // forelder mangler → tillat synlig
+      const parentRow = rows[pIndex]
+      if (!parentRow) break
       level++
-      currentPid = pidOf(rows[pIndex])
+      currentPid = pidOf(parentRow)
     }
 
     if (visible) out.push({ row: r, level })
@@ -193,6 +202,7 @@ export default function TableCore(props: TableCoreProps) {
     const di = dataIndexAtVisible(vr)
     if (di < 0) return
     const row = rowsProp[di]
+    if (!row) return
     const id = idOf(row, di)
     const hasChild = rowsProp.some(r => (r.parentId ?? null) === id)
     if (!hasChild) return
@@ -253,7 +263,7 @@ export default function TableCore(props: TableCoreProps) {
     const prev = rowsProp[di]?.[key]
 
     if (col.validate) {
-      const res = col.validate(value, rowsProp[di])
+      const res = col.validate(value, rowsProp[di] as Row)
       if (res === false || (typeof res === "string" && res.length > 0)) {
         const msg = res === false ? "Ugyldig verdi" : res
         setErrors(e => ({ ...e, [di + "::" + key]: msg }))
@@ -265,7 +275,7 @@ export default function TableCore(props: TableCoreProps) {
 
     if (prev === value) { setEdit(null); setEditingCell(null); return }
     const nextRows = rowsProp.slice()
-    nextRows[di] = { ...nextRows[di], [key]: value }
+    nextRows[di] = { ...(nextRows[di] as Row), [key]: value }
     onRowsChange(nextRows)
     const patch: Patch = { rowIndex: di, key, prev, next: value }
     push(patch)
@@ -279,7 +289,7 @@ export default function TableCore(props: TableCoreProps) {
 
   const applyPatch = (p: Patch) => {
     const nextRows = rowsProp.slice()
-    nextRows[p.rowIndex] = { ...nextRows[p.rowIndex], [p.key]: p.next }
+    nextRows[p.rowIndex] = { ...(nextRows[p.rowIndex] as Row), [p.key]: p.next }
     onRowsChange(nextRows)
     onPatch?.(p)
     onCommit?.(nextRows)
@@ -296,9 +306,9 @@ export default function TableCore(props: TableCoreProps) {
         const col = columns[c]
         if (!col?.editable) continue
         const key = col.key
-        const prev = next[di]?.[key]
+        const prev = (next[di] as Row | undefined)?.[key]
         if (prev !== "" && prev !== undefined) {
-          next[di] = { ...next[di], [key]: "" }
+          next[di] = { ...(next[di] as Row), [key]: "" }
           patches.push({ rowIndex: di, key, prev, next: "" })
         }
       }
@@ -374,7 +384,7 @@ export default function TableCore(props: TableCoreProps) {
     const dataIdxs: number[] = []
     for (let i = 0; i < count; i++) {
       const di = dataIndexAtVisible(from + i)
-      if (di >= 0) { block.push(next[di]); dataIdxs.push(di) }
+      if (di >= 0 && next[di]) { block.push(next[di] as Row); dataIdxs.push(di) }
     }
     dataIdxs.sort((a, b) => b - a).forEach(di => next.splice(di, 1))
     const afterRemoveVisible = buildVisible(next, expanded)
@@ -449,7 +459,7 @@ export default function TableCore(props: TableCoreProps) {
       const parts: string[] = []
       for (let c = Math.max(1, s.c1); c <= s.c2; c++) {
         const col = columns[c]
-        parts.push(String(rowsProp[di]?.[col?.key ?? ""] ?? ""))
+        parts.push(String((rowsProp[di] as Row | undefined)?.[col?.key ?? ""] ?? ""))
       }
       lines.push(parts.join("\t"))
     }
@@ -489,7 +499,7 @@ export default function TableCore(props: TableCoreProps) {
       if (vr >= visible.length) break
       const di = dataIndexAtVisible(vr)
       if (di < 0) continue
-      const row = { ...next[di] }
+      const row = { ...(next[di] as Row) }
       for (let j = 0; j < grid[i].length; j++) {
         const c = s.c1 + j
         if (c <= 0 || c >= columns.length) break
@@ -607,7 +617,7 @@ export default function TableCore(props: TableCoreProps) {
                 {/* data-celler */}
                 {columns.slice(1).map((col, idx) => {
                   const c = 1 + idx
-                  const v = dataRow[col.key] ?? ""
+                  const v = (dataRow as Row)[col.key] ?? ""
                   const focused = vr === rowSel.r2 && c === rowSel.c2
                   const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
                   const errKey = di + "::" + col.key
@@ -626,7 +636,7 @@ export default function TableCore(props: TableCoreProps) {
                       style={{ background: inSel ? "var(--sel)" : undefined }}
                       title={isEditing ? "" : (hasErr ? errors[errKey] : String(v))}
                     >
-                      {/* Skjul underliggende tekst mens editoren er aktiv */}
+                      {/* Skjul teksten mens editoren er aktiv for å unngå dobbel visning */}
                       <span style={{ visibility: isEditing ? "hidden" : "visible" }}>
                         {String(v)}
                       </span>
