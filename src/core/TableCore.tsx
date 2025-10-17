@@ -21,7 +21,7 @@ export type TableCoreProps = {
   expandAllByDefault?: boolean
 }
 
-/* ==== Hjelpere ==== */
+/* ===== Hjelpere ===== */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
 const normSel = (a: Selection): Selection => {
   const r1 = Math.min(a.r1, a.r2), r2 = Math.max(a.r1, a.r2)
@@ -29,30 +29,35 @@ const normSel = (a: Selection): Selection => {
   return { r1, c1, r2, c2 }
 }
 const colWidth = (cols: Column[], i: number) => (cols[i]?.width ?? 140)
-/** Sikker idOf/pidOf – faller *kun* tilbake på indeks, aldri rad-objektet */
 const idOf = (r: Row, idx: number) => (r.id ?? idx)
 const pidOf = (r: Row) => (r.parentId ?? null)
 
-function buildVisible(rows: Row[], expanded: Record<string|number, boolean>) {
-  const out: { row: Row, level: number }[] = []
-  const levelById = new Map<string|number, number>()
+/** Bygger synlig liste fra flat rows + expand-state – helt nullsikkert */
+function buildVisible(rows: Row[], expanded: Record<string | number, boolean>) {
+  const out: { row: Row; level: number }[] = []
+  // rask tilgang: id -> index
+  const indexById = new Map<string | number, number>()
+  for (let i = 0; i < rows.length; i++) indexById.set(idOf(rows[i], i), i)
+
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
-    const id = idOf(r, i)
-    const pid = pidOf(r)
     let level = 0
-    if (pid != null && levelById.has(pid)) level = (levelById.get(pid) ?? 0) + 1
-    levelById.set(id, level)
-
-    // synlighet: alle foreldre må være expanded
-    let currentPid = pid
     let visible = true
+
+    // Gå oppover foreldre-lenken; stopp om noe ikke er expanded
+    let currentPid = pidOf(r)
+    const guard = new Set<string | number>()
     while (currentPid != null) {
+      if (guard.has(currentPid)) { visible = false; break } // vern mot syklus
+      guard.add(currentPid)
+
       if (!expanded[currentPid]) { visible = false; break }
-      const parentIndex = rows.findIndex(rr => idOf(rr, rows.indexOf(rr)) === currentPid)
-      const parent = parentIndex >= 0 ? rows[parentIndex] : undefined
-      currentPid = parent ? pidOf(parent) : null
+      const pIndex = indexById.get(currentPid)
+      if (pIndex == null) break // forelder ikke i lista (tillater synlig)
+      level++
+      currentPid = pidOf(rows[pIndex])
     }
+
     if (visible) out.push({ row: r, level })
   }
   return out
@@ -62,7 +67,7 @@ function allEmpty(row: Row, columns: Column[]) {
   return columns.every(c => c.key === "#" || row[c.key] === "" || row[c.key] == null)
 }
 
-/* ==== TableCore – robust TS-sikker ==== */
+/* ===== TableCore ===== */
 export default function TableCore(props: TableCoreProps) {
   const {
     columns: columnsProp,
@@ -80,29 +85,36 @@ export default function TableCore(props: TableCoreProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const vpRef = useRef<HTMLDivElement>(null)
 
+  // Kolonner inkl. #
   const [columns, setColumns] = useState<Column[]>(() => [{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp])
   useEffect(() => { setColumns([{ key: "#", name: "#", width: 80, editable: false }, ...columnsProp]) }, [columnsProp])
 
-  const [expanded, setExpanded] = useState<Record<string|number, boolean>>({})
+  // Expand-state
+  const [expanded, setExpanded] = useState<Record<string | number, boolean>>({})
   useEffect(() => {
     if (!treeMode || !expandAllByDefault) return
-    const withChild = new Set<string|number>()
+    const withChild = new Set<string | number>()
     rowsProp.forEach(r => { if (r.parentId != null) withChild.add(r.parentId) })
-    const next: Record<string|number, boolean> = {}
+    const next: Record<string | number, boolean> = {}
     withChild.forEach(id => { next[id] = true })
     setExpanded(next)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowsProp, treeMode, expandAllByDefault])
 
-  const visible = useMemo(() => (treeMode ? buildVisible(rowsProp, expanded) : rowsProp.map((r) => ({ row: r, level: 0 }))), [rowsProp, expanded, treeMode])
+  // Synlige rader
+  const visible = useMemo(
+    () => (treeMode ? buildVisible(rowsProp, expanded) : rowsProp.map(r => ({ row: r, level: 0 }))),
+    [rowsProp, expanded, treeMode]
+  )
 
+  // Markering/redigering
   const [sel, setSel] = useState<Selection>({ r1: 0, c1: 1, r2: 0, c2: 1 })
   const [dragging, setDragging] = useState(false)
-  const anchorRef = useRef<{r:number,c:number} | null>(null)
-
-  const [edit, setEdit] = useState<{r:number,c:number,value:string} | null>(null)
+  const anchorRef = useRef<{ r: number; c: number } | null>(null)
+  const [edit, setEdit] = useState<{ r: number; c: number; value: string } | null>(null)
   const editorRef = useRef<HTMLInputElement>(null)
 
+  // Undo/Redo + feil
   const { push, undo, redo } = useUndo()
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -120,9 +132,10 @@ export default function TableCore(props: TableCoreProps) {
   useEffect(() => { onSelectionChange?.(normSel(sel)) }, [sel, onSelectionChange])
 
   const dataIndexAtVisible = (vr: number) => {
-    const row = visible[vr]?.row
-    if (!row) return -1
-    return rowsProp.indexOf(row)
+    const item = visible[vr]
+    if (!item) return -1
+    const idx = rowsProp.indexOf(item.row)
+    return idx >= 0 ? idx : -1
   }
 
   /* ===== Navigasjon/Hotkeys ===== */
@@ -177,11 +190,11 @@ export default function TableCore(props: TableCoreProps) {
 
   const toggleExpandAt = (vr: number, force?: boolean) => {
     if (!treeMode) return
-    const dataIdx = dataIndexAtVisible(vr)
-    if (dataIdx < 0) return
-    const row = rowsProp[dataIdx]
-    const id = row.id ?? dataIdx
-    const hasChild = rowsProp.some(r => (r.parentId ?? null) === (row.id ?? dataIdx))
+    const di = dataIndexAtVisible(vr)
+    if (di < 0) return
+    const row = rowsProp[di]
+    const id = idOf(row, di)
+    const hasChild = rowsProp.some(r => (r.parentId ?? null) === id)
     if (!hasChild) return
     setExpanded(prev => {
       const cur = !!prev[id]
@@ -190,7 +203,7 @@ export default function TableCore(props: TableCoreProps) {
     })
   }
 
-  /* ===== Mus: klikk/drag for utvalg ===== */
+  /* ===== Mus: markering ===== */
   const cellMouseDown = (r: number, c: number, e: React.MouseEvent) => {
     if (e.shiftKey) {
       const a = anchorRef.current ?? { r: sel.r1, c: sel.c1 }
@@ -206,18 +219,21 @@ export default function TableCore(props: TableCoreProps) {
   }
   const onMouseUp = () => setDragging(false)
 
-  /* ===== Redigering + Validering ===== */
+  /* ===== Redigering + validering ===== */
+  const [editingCell, setEditingCell] = useState<{ r: number; c: number } | null>(null)
+
   const startEdit = (vr: number, c: number, selectAll: boolean, seed?: string) => {
     if (c === 0) return
     const col = columns[c]
     if (!col?.editable) return
-    const dataIdx = dataIndexAtVisible(vr)
-    if (dataIdx < 0) return
-    if (edit && edit.r === vr && edit.c === c) return // ikke re-start samme celle
+    const di = dataIndexAtVisible(vr)
+    if (di < 0) return
+    if (edit && edit.r === vr && edit.c === c) return
 
-    const raw = rowsProp[dataIdx]?.[col.key] ?? ""
+    const raw = rowsProp[di]?.[col.key] ?? ""
     const value = seed !== undefined ? seed : String(raw ?? "")
     setEdit({ r: vr, c, value })
+    setEditingCell({ r: vr, c })
     setTimeout(() => {
       if (editorRef.current) {
         if (selectAll) editorRef.current.select()
@@ -229,36 +245,37 @@ export default function TableCore(props: TableCoreProps) {
   const commitEdit = () => {
     if (!edit) return
     const { r: vr, c, value } = edit
-    const dataIdx = dataIndexAtVisible(vr)
-    if (dataIdx < 0) { setEdit(null); return }
+    const di = dataIndexAtVisible(vr)
+    if (di < 0) { setEdit(null); setEditingCell(null); return }
     const col = columns[c]
-    if (!col) { setEdit(null); return }
+    if (!col) { setEdit(null); setEditingCell(null); return }
     const key = col.key
-    const prev = rowsProp[dataIdx]?.[key]
+    const prev = rowsProp[di]?.[key]
 
     if (col.validate) {
-      const res = col.validate(value, rowsProp[dataIdx])
+      const res = col.validate(value, rowsProp[di])
       if (res === false || (typeof res === "string" && res.length > 0)) {
         const msg = res === false ? "Ugyldig verdi" : res
-        setErrors(e => ({ ...e, [dataIdx + "::" + key]: msg }))
+        setErrors(e => ({ ...e, [di + "::" + key]: msg }))
         return
       } else {
-        setErrors(e => { const copy = { ...e }; delete copy[dataIdx + "::" + key]; return copy })
+        setErrors(e => { const copy = { ...e }; delete copy[di + "::" + key]; return copy })
       }
     }
 
-    if (prev === value) { setEdit(null); return }
+    if (prev === value) { setEdit(null); setEditingCell(null); return }
     const nextRows = rowsProp.slice()
-    nextRows[dataIdx] = { ...nextRows[dataIdx], [key]: value }
+    nextRows[di] = { ...nextRows[di], [key]: value }
     onRowsChange(nextRows)
-    const patch: Patch = { rowIndex: dataIdx, key, prev, next: value }
+    const patch: Patch = { rowIndex: di, key, prev, next: value }
     push(patch)
     onPatch?.(patch)
     onCommit?.(nextRows)
     setEdit(null)
+    setEditingCell(null)
   }
 
-  const cancelEdit = () => setEdit(null)
+  const cancelEdit = () => { setEdit(null); setEditingCell(null) }
 
   const applyPatch = (p: Patch) => {
     const nextRows = rowsProp.slice()
@@ -273,27 +290,28 @@ export default function TableCore(props: TableCoreProps) {
     const next = rowsProp.slice()
     const patches: Patch[] = []
     for (let vr = s.r1; vr <= s.r2; vr++) {
-      const rdx = dataIndexAtVisible(vr)
-      if (rdx < 0) continue
+      const di = dataIndexAtVisible(vr)
+      if (di < 0) continue
       for (let c = Math.max(1, s.c1); c <= s.c2; c++) {
         const col = columns[c]
         if (!col?.editable) continue
         const key = col.key
-        const prev = next[rdx]?.[key]
+        const prev = next[di]?.[key]
         if (prev !== "" && prev !== undefined) {
-          next[rdx] = { ...next[rdx], [key]: "" }
-          patches.push({ rowIndex: rdx, key, prev, next: "" })
+          next[di] = { ...next[di], [key]: "" }
+          patches.push({ rowIndex: di, key, prev, next: "" })
         }
       }
     }
     if (patches.length) {
       onRowsChange(next)
       patches.forEach(p => push(p))
-      if (patches.length) onPatch?.(patches[patches.length - 1]!)
+      onPatch?.(patches[patches.length - 1]!)
       onCommit?.(next)
     }
   }
 
+  // Editor posisjon
   const editorRect = useMemo(() => {
     if (!edit) return null
     const { r: vr, c } = edit
@@ -325,7 +343,7 @@ export default function TableCore(props: TableCoreProps) {
   }
 
   /* ===== Rad-drag (inkl. blokk) ===== */
-  const dragBlockRef = useRef<{ from:number, count:number } | null>(null)
+  const dragBlockRef = useRef<{ from: number; count: number } | null>(null)
   const onRowDragStart = (vr: number, e: React.DragEvent) => {
     const s = normSel(sel)
     const inBlock = vr >= s.r1 && vr <= s.r2
@@ -358,7 +376,7 @@ export default function TableCore(props: TableCoreProps) {
       const di = dataIndexAtVisible(from + i)
       if (di >= 0) { block.push(next[di]); dataIdxs.push(di) }
     }
-    dataIdxs.sort((a,b)=>b-a).forEach(di => next.splice(di, 1))
+    dataIdxs.sort((a, b) => b - a).forEach(di => next.splice(di, 1))
     const afterRemoveVisible = buildVisible(next, expanded)
     const toDataIdxAfter = (() => {
       const target = clamp(toVR, 0, afterRemoveVisible.length)
@@ -371,6 +389,7 @@ export default function TableCore(props: TableCoreProps) {
     onReorderRows?.({ fromIndex: srcDataIdx, toIndex: toDataIdxAfter, count, parentId })
   }
 
+  /* ===== Indent/Outdent/Move i tre ===== */
   const indentSelectionTwoStep = (s: Selection) => {
     if (!treeMode) return
     const anchor = s.r2
@@ -386,6 +405,7 @@ export default function TableCore(props: TableCoreProps) {
     me.parentId = sameLevel ? (prev.id ?? prevDI) : (prev.parentId ?? null)
     onRowsChange(cur)
   }
+
   const outdentSelection = (s: Selection) => {
     if (!treeMode) return
     const di = dataIndexAtVisible(s.r2)
@@ -398,6 +418,7 @@ export default function TableCore(props: TableCoreProps) {
     me.parentId = parent ? (parent.parentId ?? null) : null
     onRowsChange(cur)
   }
+
   const moveSelectionWithinParent = (s: Selection, dir: 1 | -1) => {
     const from = s.r1
     const count = s.r2 - s.r1 + 1
@@ -418,6 +439,7 @@ export default function TableCore(props: TableCoreProps) {
     setSel({ r1: from + shift, c1: s.c1, r2: s.r2 + shift, c2: s.c2 })
   }
 
+  /* ===== Clipboard ===== */
   const onCopy = (e: React.ClipboardEvent) => {
     const s = normSel(sel)
     const lines: string[] = []
@@ -434,6 +456,7 @@ export default function TableCore(props: TableCoreProps) {
     e.clipboardData.setData("text/plain", lines.join("\n"))
     e.preventDefault()
   }
+
   function parseClipboard(e: React.ClipboardEvent): string[][] | null {
     const html = e.clipboardData.getData("text/html")
     if (html && html.includes("<table")) {
@@ -454,6 +477,7 @@ export default function TableCore(props: TableCoreProps) {
     if (!txt) return null
     return txt.split(/\r?\n/).map(line => line.split("\t"))
   }
+
   const onPaste = (e: React.ClipboardEvent) => {
     const grid = parseClipboard(e)
     if (!grid || grid.length === 0) return
@@ -489,7 +513,10 @@ export default function TableCore(props: TableCoreProps) {
     onCommit?.(next)
   }
 
-  const gridCols = useMemo(() => columns.map((c, i) => colWidth(columns, i) + "px").join(" "), [columns])
+  const gridCols = useMemo(
+    () => columns.map((_, i) => `${colWidth(columns, i)}px`).join(" "),
+    [columns]
+  )
 
   return (
     <div
@@ -503,13 +530,14 @@ export default function TableCore(props: TableCoreProps) {
       aria-label="TableCore grid"
       role="grid"
     >
+      {/* Header */}
       <div className="tc-header" style={{ gridTemplateColumns: gridCols, height: headerHeight }}>
         {columns.map((c, i) => (
           <div
             key={c.key}
             className={"tc-hcell" + (i === 0 ? " tc-hcell-hash" : "")}
             role="columnheader"
-            aria-colindex={i+1}
+            aria-colindex={i + 1}
             draggable={i !== 0}
             onDragStart={(e) => i !== 0 && onHeaderDragStart(i, e)}
             onDragOver={(e) => i !== 0 && onHeaderDragOver(e)}
@@ -520,6 +548,7 @@ export default function TableCore(props: TableCoreProps) {
         ))}
       </div>
 
+      {/* Viewport */}
       <div
         className="tc-viewport"
         ref={vpRef}
@@ -540,21 +569,21 @@ export default function TableCore(props: TableCoreProps) {
             const level = vrow.level
             const clsLevel = "tc-level-" + String(Math.min(level, 4))
             const rowSel = normSel(sel)
-            const hasChildren = rowsProp.some(r => (r.parentId ?? null) === (dataRow.id ?? di))
-            const isExpanded = !!expanded[(dataRow.id ?? di)]
+            const hasChildren = rowsProp.some(r => (r.parentId ?? null) === idOf(dataRow, di))
+            const isExpanded = !!expanded[idOf(dataRow, di)]
 
             return (
               <div
                 key={di + "-" + vr}
                 className={`tc-row ${clsLevel}`}
                 role="row"
-                aria-rowindex={vr+1}
+                aria-rowindex={vr + 1}
                 style={{ gridTemplateColumns: gridCols, height: rowHeight }}
                 onDragOver={onRowDragOver}
                 onDrop={(e) => onRowDrop(vr, e)}
               >
                 {/* #-kolonnen */}
-                <div className="tc-cell-hash" style={{ paddingLeft: 6 + level*14 }}>
+                <div className="tc-cell-hash" style={{ paddingLeft: 6 + level * 14 }}>
                   <span
                     className="tc-caret"
                     onClick={() => toggleExpandAt(vr)}
@@ -567,7 +596,9 @@ export default function TableCore(props: TableCoreProps) {
                     draggable
                     onDragStart={(e) => onRowDragStart(vr, e)}
                     title="Dra for å flytte rad/blokk"
-                  >☰</span>
+                  >
+                    ☰
+                  </span>
                   <span style={{ opacity: isEmpty ? 0 : 0.9 }}>
                     {isEmpty ? "" : (di + 1)}
                   </span>
@@ -581,13 +612,13 @@ export default function TableCore(props: TableCoreProps) {
                   const inSel = vr >= rowSel.r1 && vr <= rowSel.r2 && c >= rowSel.c1 && c <= rowSel.c2
                   const errKey = di + "::" + col.key
                   const hasErr = !!errors[errKey]
-                  const isEditing = !!edit && edit.r === vr && edit.c === c
+                  const isEditing = !!editingCell && editingCell.r === vr && editingCell.c === c
                   return (
                     <div
                       key={col.key}
                       className={"tc-cell" + (focused ? " tc-focus" : "") + (hasErr ? " tc-cell-error" : "")}
                       role="gridcell"
-                      aria-colindex={c+1}
+                      aria-colindex={c + 1}
                       onMouseDown={(e) => cellMouseDown(vr, c, e)}
                       onMouseEnter={() => cellMouseEnter(vr, c)}
                       onDoubleClick={() => startEdit(vr, c, true)}
@@ -595,6 +626,7 @@ export default function TableCore(props: TableCoreProps) {
                       style={{ background: inSel ? "var(--sel)" : undefined }}
                       title={isEditing ? "" : (hasErr ? errors[errKey] : String(v))}
                     >
+                      {/* Skjul underliggende tekst mens editoren er aktiv */}
                       <span style={{ visibility: isEditing ? "hidden" : "visible" }}>
                         {String(v)}
                       </span>
@@ -607,13 +639,14 @@ export default function TableCore(props: TableCoreProps) {
 
           <div style={{ height: bottomPad }} />
 
-          {/* Rektangel-ramme for utvalg */}
+          {/* Rektangel for utvalg */}
           {(() => {
             const s = normSel(sel)
             const top = s.r1 * rowHeight + headerHeight - scrollTop
             let left = 0
             for (let i = 0; i < s.c1; i++) left += colWidth(columns, i)
-            const width = Array.from({length: (s.c2 - s.c1 + 1)}).reduce((acc, _, idx) => acc + colWidth(columns, s.c1 + idx), 0)
+            const width = Array.from({ length: (s.c2 - s.c1 + 1) })
+              .reduce<number>((acc, _v, idx) => acc + colWidth(columns, s.c1 + idx), 0)
             const height = (s.r2 - s.r1 + 1) * rowHeight
             return <div className="tc-sel-rect" style={{ top, left, width, height }} />
           })()}
