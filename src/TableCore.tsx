@@ -76,22 +76,36 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
   }
 
   // Tastatur
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (!sel.start) return
-    const { r, c } = sel.start
-    if (e.key === 'Enter') { setEditing({ r, c }); e.preventDefault() }
-    if (e.key === 'Tab') {
-      setSel({ start: { r, c: Math.min(c + (e.shiftKey ? -1 : 1), cols.length - 1) }, end: null })
-      e.preventDefault()
-    }
-    if (e.key === 'ArrowDown') { setSel({ start: { r: Math.min(r + 1, rows.length - 1), c }, end: null }); e.preventDefault() }
-    if (e.key === 'ArrowUp') { setSel({ start: { r: Math.max(r - 1, 0), c }, end: null }); e.preventDefault() }
-    if (e.key === 'ArrowRight') { setSel({ start: { r, c: Math.min(c + 1, cols.length - 1) }, end: null }); e.preventDefault() }
-    if (e.key === 'ArrowLeft') { setSel({ start: { r, c: Math.max(c - 1, 0) }, end: null }); e.preventDefault() }
-    // Innrykk/utrykk
-    if (e.key === ']' && (e.ctrlKey || e.metaKey)) { changeLevel(r, +1); e.preventDefault() }
-    if (e.key === '[' && (e.ctrlKey || e.metaKey)) { changeLevel(r, -1); e.preventDefault() }
+ function onKeyDown(e: React.KeyboardEvent) {
+  if (!sel.start) return
+  const { r, c } = sel.start
+
+  // Redigering: Enter åpner editor (vi bruker contentEditable, så Enter=commit)
+  if (e.key === 'Enter') { setEditing({ r, c }); e.preventDefault() }
+
+  // Navigasjon mellom celler
+  if (e.key === 'Tab') {
+    setSel({
+      start: { r, c: Math.min(c + (e.shiftKey ? -1 : 1), cols.length - 1) },
+      end: null
+    })
+    e.preventDefault()
+    return
   }
+  if (e.key === 'ArrowDown') { setSel({ start: { r: Math.min(r + 1, rows.length - 1), c }, end: null }); e.preventDefault(); return }
+  if (e.key === 'ArrowUp')   { setSel({ start: { r: Math.max(r - 1, 0), c }, end: null }); e.preventDefault(); return }
+  if (e.key === 'ArrowRight'){ setSel({ start: { r, c: Math.min(c + 1, cols.length - 1) }, end: null }); e.preventDefault(); return }
+  if (e.key === 'ArrowLeft') { setSel({ start: { r, c: Math.max(c - 1, 0) }, end: null }); e.preventDefault(); return }
+
+  // Innrykk / utrykk – to varianter:
+  // a) Ctrl/Cmd + ] / [
+  if ((e.ctrlKey || e.metaKey) && e.key === ']') { changeLevel(r, +1); e.preventDefault(); return }
+  if ((e.ctrlKey || e.metaKey) && e.key === '[') { changeLevel(r, -1); e.preventDefault(); return }
+
+  // b) Alt + Pil høyre/venstre (din ønskede snarvei)
+  if (e.altKey && e.key === 'ArrowRight') { changeLevel(r, +1); e.preventDefault(); return }
+  if (e.altKey && e.key === 'ArrowLeft')  { changeLevel(r, -1); e.preventDefault(); return }
+}
   function changeLevel(r: number, delta: number) {
     onRowsChange(produce(rows, draft => {
       draft[r].level = Math.max(0, draft[r].level + delta)
