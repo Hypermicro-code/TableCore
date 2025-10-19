@@ -1,7 +1,7 @@
 /* ==== [BLOCK: TableCore CSS] BEGIN ==== */
 :root{
---tc-bg:#ffffff; --tc-fg:#151515; --tc-grid:#e7e7ea; --tc-accent:#2e62ff;
---tc-sel:#bcd3ff; --tc-sel-border:#2e62ff; --tc-edit-bg:#fffef7;
+  --tc-bg:#ffffff; --tc-fg:#151515; --tc-grid:#e7e7ea; --tc-accent:#2e62ff;
+  --tc-sel:#bcd3ff; --tc-sel-border:#2e62ff; --tc-edit-bg:#fffef7;
 }
 .tc-root{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--tc-fg);}
 .tc-wrap{border:1px solid var(--tc-grid); border-radius:8px; overflow:hidden; background:var(--tc-bg);}
@@ -14,11 +14,12 @@
 .tc-indent{display:inline-block; width: calc(var(--lvl)*14px);}
 .tc-summary{background:#fafafa; font-weight:600; border-bottom:1px solid var(--tc-grid);}
 
-
 /* Markering */
 .tc-cell.sel{background:var(--tc-sel);}
 .tc-cell.sel-edge{outline:2px solid var(--tc-sel-border); outline-offset:-2px;}
 
-
-/* Kolonnebredder settes inline via style gridTemplateColumns */
+/* Slå av text selection i hele root KUN når vi drar mellom celler */
+.tc-root.tc-noselect, .tc-root.tc-noselect * {
+  user-select: none !important;
+}
 /* ==== [BLOCK: TableCore CSS] END ==== */
