@@ -215,7 +215,5 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
     </div>
   )}
 </div>
-
-    </div>
   )
 }
