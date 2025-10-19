@@ -17,17 +17,20 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
 
   const [sel, setSel] = useState<Selection>({ start: null, end: null })
 
+  // ✅ Hook må kalles på toppnivå (ikke inni useEffect)
+  const { onCopy, onPaste } = useClipboard(cols, rows, sel, onRowsChange)
+
+  // Global clipboard listeners
   useEffect(() => {
-    const clip = useClipboard(cols, rows, sel, onRowsChange)
-    const onCopy = (e: any) => clip.onCopy(e)
-    const onPaste = (e: any) => clip.onPaste(e)
-    document.addEventListener('copy', onCopy)
-    document.addEventListener('paste', onPaste)
+    const handleCopy = (e: ClipboardEvent) => onCopy(e)
+    const handlePaste = (e: ClipboardEvent) => onPaste(e)
+    document.addEventListener('copy', handleCopy)
+    document.addEventListener('paste', handlePaste)
     return () => {
-      document.removeEventListener('copy', onCopy)
-      document.removeEventListener('paste', onPaste)
+      document.removeEventListener('copy', handleCopy)
+      document.removeEventListener('paste', handlePaste)
     }
-  }, [cols, rows, sel, onRowsChange])
+  }, [onCopy, onPaste])
 
   const dragRow = useRef<number | null>(null)
   const dragCol = useRef<number | null>(null)
@@ -35,9 +38,7 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
 
   const summary = useMemo(() => {
     const sums: Record<string, number> = {}
-    for (const col of cols) {
-      if (col.type === 'number') sums[col.id] = 0
-    }
+    for (const col of cols) if (col.type === 'number') sums[col.id] = 0
     for (const r of rows) {
       for (const col of cols) {
         if (col.type === 'number') {
@@ -82,7 +83,6 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
     if (e.key === 'ArrowUp') { setSel({ start: { r: Math.max(r - 1, 0), c }, end: null }); e.preventDefault() }
     if (e.key === 'ArrowRight') { setSel({ start: { r, c: Math.min(c + 1, cols.length - 1) }, end: null }); e.preventDefault() }
     if (e.key === 'ArrowLeft') { setSel({ start: { r, c: Math.max(c - 1, 0) }, end: null }); e.preventDefault() }
-    // Indent / Outdent
     if (e.key === ']' && (e.ctrlKey || e.metaKey)) { changeLevel(r, +1); e.preventDefault() }
     if (e.key === '[' && (e.ctrlKey || e.metaKey)) { changeLevel(r, -1); e.preventDefault() }
   }
@@ -95,7 +95,7 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
 
   // Rad-drag
   function onRowGripDown(index: number) { dragRow.current = index }
-  function onRowOver(e: React.DragEvent, _index: number) { e.preventDefault() }
+  function onRowOver(e: React.DragEvent) { e.preventDefault() }
   function onRowDrop(e: React.DragEvent, index: number) {
     e.preventDefault()
     if (dragRow.current == null) return
@@ -111,7 +111,7 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
 
   // Kolonne-drag
   function onColGripDown(index: number) { dragCol.current = index }
-  function onColOver(e: React.DragEvent, _index: number) { e.preventDefault() }
+  function onColOver(e: React.DragEvent) { e.preventDefault() }
   function onColDrop(e: React.DragEvent, index: number) {
     e.preventDefault()
     if (dragCol.current == null) return
@@ -140,8 +140,8 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
             key={c.id}
             className={clsx('tc-col-header')}
             draggable
-            onDragOver={e => onColOver(e, i)}
-            onDrop={e => onColDrop(e, i)}
+            onDragOver={onColOver}
+            onDrop={(e) => onColDrop(e, i)}
           >
             <span title="Dra for å flytte kolonne" className="tc-col-grip" draggable onDragStart={() => onColGripDown(i)}>⋮⋮</span>
             <span>{c.title}</span>
@@ -152,7 +152,7 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
       {/* Rows */}
       <div className="tc" style={{ gridTemplateColumns: gridTemplate }}>
         {rows.map((row, r) => (
-          <div key={row.id} className={clsx('tc-row')} draggable onDragOver={e => onRowOver(e, r)} onDrop={e => onRowDrop(e, r)}>
+          <div key={row.id} className={clsx('tc-row')} draggable onDragOver={onRowOver} onDrop={(e) => onRowDrop(e, r)}>
             <div className="tc-cell tc-index">
               <span title="Dra for å flytte rad" className="tc-row-grip" draggable onDragStart={() => onRowGripDown(r)}>⋮⋮</span>
               {rowHasData(row) ? r + 1 : ''}
@@ -168,7 +168,6 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
                   onPointerEnter={e => onCellPointerEnter(e, r, colIdx)}
                   onDoubleClick={() => onCellDoubleClick(r, colIdx)}
                 >
-                  {/* Indent bullets for level */}
                   {colIdx === 0 && (
                     <>
                       {Array.from({ length: row.level }).map((_, i) => <span key={i} className="tc-indent" />)}
@@ -176,7 +175,6 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
                     </>
                   )}
 
-                  {/* Editors */}
                   {c.type === 'color' ? (
                     <input type="color" value={val || '#9ca3af'} onChange={e => setCell(r, colIdx, e.target.value)} />
                   ) : c.type === 'date' ? (
@@ -198,7 +196,6 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
           </div>
         ))}
 
-        {/* Summary row */}
         {showSummaryRow && (
           <div className={clsx('tc-row tc-summary')}>
             <div className="tc-cell tc-index">Σ</div>
