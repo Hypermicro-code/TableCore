@@ -1,6 +1,7 @@
+// src/App.tsx
 import React, { useState } from 'react'
 import { TableCore } from './TableCore'
-import type { Column, Row } from './types'
+import type { Column, Row, Selection } from './types'
 
 const initialColumns: Column[] = [
   { id: 'title', title: 'Tittel', width: 280, type: 'text' },
@@ -20,25 +21,63 @@ const initialRows: Row[] = [
 ]
 
 export function App() {
+  // ── State ────────────────────────────────────────────────────────────────
   const [columns] = useState(initialColumns)
   const [rows, setRows] = useState(initialRows)
   const [dark, setDark] = useState(false)
   const [summary, setSummary] = useState(true)
+  const [selectedRow, setSelectedRow] = useState<number | null>(null)
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  function handleNewRowBelowSelection() {
+    setRows(prev => {
+      const newRow: Row = { id: crypto.randomUUID(), level: 0, cells: {} }
+
+      // Ingen rad valgt → legg TIL SLUTT og arve nivå fra siste rad (hvis finnes)
+      if (selectedRow == null || selectedRow < 0 || selectedRow >= prev.length) {
+        const inheritedLevel = prev.length > 0 ? (prev[prev.length - 1].level ?? 0) : 0
+        newRow.level = inheritedLevel
+        return [...prev, newRow]
+      }
+
+      // Rad valgt → legg rett UNDER valgt rad, med SAMME nivå
+      newRow.level = prev[selectedRow].level ?? 0
+      const next = prev.slice()
+      next.splice(selectedRow + 1, 0, newRow)
+      return next
+    })
+  }
 
   return (
     <div className={dark ? 'app dark' : 'app'}>
+      {/* ── Toolbar ───────────────────────────────────────────────────────── */}
       <div className="toolbar">
         <button onClick={() => setDark(d => !d)}>{dark ? 'Lyst tema' : 'Mørkt tema'}</button>
-        <button onClick={() => setRows(rs => [{ id: crypto.randomUUID(), level: 0, cells: {} }, ...rs])}>Ny rad ⊕</button>
-        <button onClick={() => setSummary(s => !s)}>{summary ? 'Skjul sammendrag' : 'Vis sammendrag'}</button>
+
+        <button onClick={handleNewRowBelowSelection}>Ny rad ⊕</button>
+
+        <button onClick={() => setSummary(s => !s)}>
+          {summary ? 'Skjul sammendrag' : 'Vis sammendrag'}
+        </button>
+
         <div className="spacer" />
+
         <small style={{ color: 'var(--muted)' }}>
-  Tips: Alt+←/→ (i «Tittel») eller Ctrl/Cmd+[ / ] for innrykk/utrykk. Dobbeltklikk for redigering. Dra kolonner/rader for å flytte.
-</small>
+          Tips: Alt+←/→ (i «Tittel») eller Ctrl/Cmd+[ / ] for innrykk/utrykk.
+          Dobbeltklikk for redigering. Dra kolonner/rader for å flytte.
+        </small>
       </div>
 
+      {/* ── Tabell ────────────────────────────────────────────────────────── */}
       <div className="card">
-        <TableCore columns={columns} rows={rows} onRowsChange={setRows} showSummaryRow={summary} />
+        <TableCore
+          columns={columns}
+          rows={rows}
+          onRowsChange={setRows}
+          showSummaryRow={summary}
+          // Viktig: gi TableCore en callback som oppdaterer valgt rad
+          onSelectionChange={(s) => setSelectedRow(s.start?.r ?? null)}
+        />
       </div>
     </div>
   )
