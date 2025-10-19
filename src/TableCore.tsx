@@ -1,3 +1,4 @@
+// src/TableCore.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { produce } from 'immer'
@@ -9,7 +10,7 @@ export type TableCoreProps = {
   rows: Row[]
   onRowsChange: (rows: Row[]) => void
   showSummaryRow?: boolean
-  /** Varsler appen om nåværende markering (for “Ny rad under valgt”) */
+  /** Varsler appen om nåværende markering (for “Ny rad under valgt”). */
   onSelectionChange?: (sel: Selection) => void
 }
 
@@ -25,11 +26,20 @@ export function TableCore({
   useEffect(() => setCols(columns), [columns])
 
   // Markering
-  const [sel, _setSel] = useState<Selection>({ start: null, end: null })
-  function setSel(next: Selection) {
-    _setSel(next)
-    onSelectionChange?.(next)
+  const [selState, _setSel] = useState<Selection>({ start: null, end: null })
+  function setSel(next: Selection | ((prev: Selection) => Selection)) {
+    if (typeof next === 'function') {
+      _setSel(prev => {
+        const resolved = (next as (p: Selection) => Selection)(prev)
+        onSelectionChange?.(resolved)
+        return resolved
+      })
+    } else {
+      _setSel(next)
+      onSelectionChange?.(next)
+    }
   }
+  const sel = selState
 
   // Clipboard hook MÅ kalles på toppnivå
   const { onCopy, onPaste } = useClipboard(cols, rows, sel, onRowsChange)
@@ -119,9 +129,10 @@ export function TableCore({
         e.stopPropagation()
       }
     }
-    document.addEventListener('keydown', handleAltArrows, { capture: true })
-    return () => document.removeEventListener('keydown', handleAltArrows as any, { capture: true } as any)
-  }, [sel, rows, cols])
+    // capture=true for å fange før input/contentEditable
+    document.addEventListener('keydown', handleAltArrows, true)
+    return () => document.removeEventListener('keydown', handleAltArrows, true)
+  }, [sel])
 
   // ── Celle-interaksjon ─────────────────────────────────────────────────────
   function onCellPointerDown(e: React.PointerEvent, r: number, c: number) {
@@ -130,7 +141,9 @@ export function TableCore({
     ensureDefaultLevel(r)
   }
   function onCellPointerEnter(_e: React.PointerEvent, r: number, c: number) {
-    if (sel.start) setSel(s => ({ ...s, end: { r, c } }))
+    if (sel.start) {
+      setSel(prev => ({ ...prev, end: { r, c } }))
+    }
   }
   function onCellDoubleClick(r: number, c: number) {
     setEditing({ r, c })
@@ -144,7 +157,10 @@ export function TableCore({
     if (e.key === 'Enter') { setEditing({ r, c }); e.preventDefault() }
 
     if (e.key === 'Tab') {
-      setSel({ start: { r, c: Math.min(c + (e.shiftKey ? -1 : 1), cols.length - 1) }, end: null })
+      setSel({
+        start: { r, c: Math.min(c + (e.shiftKey ? -1 : 1), cols.length - 1) },
+        end: null
+      })
       e.preventDefault()
       return
     }
