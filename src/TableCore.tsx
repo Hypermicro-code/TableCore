@@ -150,63 +150,72 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
       </div>
 
       {/* Rows */}
-      <div className="tc" style={{ gridTemplateColumns: gridTemplate }}>
-        {rows.map((row, r) => (
-          <div key={row.id} className={clsx('tc-row')} draggable onDragOver={onRowOver} onDrop={(e) => onRowDrop(e, r)}>
-            <div className="tc-cell tc-index">
-              <span title="Dra for å flytte rad" className="tc-row-grip" draggable onDragStart={() => onRowGripDown(r)}>⋮⋮</span>
-              {rowHasData(row) ? r + 1 : ''}
-            </div>
-            {cols.map((c, colIdx) => {
-              const val = row.cells[c.id] ?? ''
-              const numeric = c.type === 'number'
-              return (
-                <div
-                  key={c.id}
-                  className={clsx('tc-cell', numeric && 'numeric')}
-                  onPointerDown={e => onCellPointerDown(e, r, colIdx)}
-                  onPointerEnter={e => onCellPointerEnter(e, r, colIdx)}
-                  onDoubleClick={() => onCellDoubleClick(r, colIdx)}
-                >
-                  {colIdx === 0 && (
-                    <>
-                      {Array.from({ length: row.level }).map((_, i) => <span key={i} className="tc-indent" />)}
-                      {row.level > 0 && <span className="tc-level-bullet" />}
-                    </>
-                  )}
-
-                  {c.type === 'color' ? (
-                    <input type="color" value={val || '#9ca3af'} onChange={e => setCell(r, colIdx, e.target.value)} />
-                  ) : c.type === 'date' ? (
-                    <input type="date" value={val} onChange={e => setCell(r, colIdx, e.target.value)} />
-                  ) : (
-                    <div
-                      contentEditable
-                      suppressContentEditableWarning
-                      spellCheck={false}
-                      onBlur={(e) => setCell(r, colIdx, (e.target as HTMLElement).innerText)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { (e.target as HTMLElement).blur(); e.preventDefault() }
-                      }}
-                    >{val}</div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        ))}
-
-        {showSummaryRow && (
-          <div className={clsx('tc-row tc-summary')}>
-            <div className="tc-cell tc-index">Σ</div>
-            {cols.map(c => (
-              <div key={c.id} className={clsx('tc-cell', c.type === 'number' && 'numeric')}>
-                {c.type === 'number' ? (summary[c.id] ?? '').toLocaleString?.() ?? '' : ''}
-              </div>
-            ))}
-          </div>
-        )}
+<div className="tc">
+  {rows.map((row, r) => (
+    <div
+      key={row.id}
+      className={clsx('tc-row')}
+      draggable
+      onDragOver={onRowOver}
+      onDrop={(e) => onRowDrop(e, r)}
+      style={{ gridTemplateColumns: gridTemplate }}   {/* ✅ legg grid her også */}
+    >
+      <div className="tc-cell tc-index">
+        <span title="Dra for å flytte rad" className="tc-row-grip" draggable onDragStart={() => onRowGripDown(r)}>⋮⋮</span>
+        {rowHasData(row) ? r + 1 : ''}
       </div>
+
+      {cols.map((c, colIdx) => {
+        const val = row.cells[c.id] ?? ''
+        const numeric = c.type === 'number'
+        return (
+          <div
+            key={c.id}
+            className={clsx('tc-cell', numeric && 'numeric')}
+            onPointerDown={e => onCellPointerDown(e, r, colIdx)}
+            onPointerEnter={e => onCellPointerEnter(e, r, colIdx)}
+            onDoubleClick={() => onCellDoubleClick(r, colIdx)}
+          >
+            {colIdx === 0 && (
+              <>
+                {Array.from({ length: row.level }).map((_, i) => <span key={i} className="tc-indent" />)}
+                {row.level > 0 && <span className="tc-level-bullet" />}
+              </>
+            )}
+
+            {c.type === 'color' ? (
+              <input type="color" value={val || '#9ca3af'} onChange={e => setCell(r, colIdx, e.target.value)} />
+            ) : c.type === 'date' ? (
+              <input type="date" value={val} onChange={e => setCell(r, colIdx, e.target.value)} />
+            ) : (
+              <div
+                contentEditable
+                suppressContentEditableWarning
+                spellCheck={false}
+                onBlur={(e) => setCell(r, colIdx, (e.target as HTMLElement).innerText)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { (e.target as HTMLElement).blur(); e.preventDefault() }
+                }}
+              >{val}</div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  ))}
+
+  {showSummaryRow && (
+    <div className={clsx('tc-row tc-summary')} style={{ gridTemplateColumns: gridTemplate }}>
+      <div className="tc-cell tc-index">Σ</div>
+      {cols.map(c => (
+        <div key={c.id} className={clsx('tc-cell', c.type === 'number' && 'numeric')}>
+          {c.type === 'number' ? (summary[c.id] ?? '').toLocaleString?.() ?? '' : ''}
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
     </div>
   )
 }
