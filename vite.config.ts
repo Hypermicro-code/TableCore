@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// ⚠️ Endre "brukernavn" og "repo-navn" til dine faktiske verdier
+// VIKTIG: Bytt REPO_NAVN til repo-navnet ditt (nøyaktig samme store/små bokstaver)
 export default defineConfig({
   plugins: [react()],
-  base: '/repo-navn/' // ← endre denne!
+  base: '/TableCore/',     // <- må matche GitHub Pages sti
 })
