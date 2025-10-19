@@ -33,7 +33,7 @@ export function App() {
         <button onClick={() => setSummary(s => !s)}>{summary ? 'Skjul sammendrag' : 'Vis sammendrag'}</button>
         <div className="spacer" />
         <small style={{ color: 'var(--muted)' }}>
-  Tips: Alt+←/→ eller Ctrl/Cmd+[ / ] for innrykk/utrykk. Dobbeltklikk for redigering. Dra kolonner/rader for å flytte.
+  Tips: Alt+←/→ (i «Tittel») eller Ctrl/Cmd+[ / ] for innrykk/utrykk. Dobbeltklikk for redigering. Dra kolonner/rader for å flytte.
 </small>
       </div>
 
