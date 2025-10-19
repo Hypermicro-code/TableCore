@@ -1,15 +1,13 @@
-export const SRC_STYLES_CSS = `:root{--bg:#f8fafc;--panel:#ffffff;--ink:#0f172a;--muted:#64748b;--sel:#dbeafe;--grid:#e2e8f0;--focus:#3b82f6}
+:root{--bg:#f8fafc;--panel:#ffffff;--ink:#0f172a;--muted:#64748b;--sel:#dbeafe;--grid:#e2e8f0;--focus:#3b82f6}
 :root.dark{--bg:#0b1220;--panel:#0f172a;--ink:#e5e7eb;--muted:#94a3b8;--sel:#1e293b;--grid:#1f2937;--focus:#60a5fa}
 *{box-sizing:border-box}html,body,#root{height:100%}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Apple Color Emoji,Noto Color Emoji,Arial}
 button{cursor:pointer}
-
 
 /* App chrome */
 .app{max-width:1200px;margin:24px auto;padding:16px}
 .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .toolbar .spacer{flex:1}
 .card{background:var(--panel);border:1px solid var(--grid);border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-
 
 /* Table */
 .tc{--rowH:28px;--corner:10px;border-radius:12px;overflow:hidden;border:1px solid var(--grid)}
@@ -29,8 +27,6 @@ button{cursor:pointer}
 .tc-summary{position:sticky;bottom:0;background:var(--panel);}
 .tc-summary .tc-cell{font-weight:600;background:linear-gradient(to top, rgba(0,0,0,.04), transparent)}
 
-
-/* Selection rectangle */
+/* Selection rectangle (placeholder for senere utvalgskasse) */
 .selbox{position:absolute;border:2px solid var(--focus);pointer-events:none;border-radius:6px}
 .tc-wrap{position:relative}
-`;
