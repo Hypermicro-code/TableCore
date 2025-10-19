@@ -16,6 +16,7 @@ button{cursor:pointer}
 .tc-cell{border-right:1px solid var(--grid);border-bottom:1px solid var(--grid);padding:4px 8px;min-height:var(--rowH);display:flex;align-items:center;gap:6px;outline:none}
 .tc-cell[contenteditable="true"]:focus{box-shadow:inset 0 0 0 2px var(--focus);background:var(--sel)}
 .tc-cell.numeric{text-align:right}
+.tc-cell.selected{background:var(--sel); box-shadow:inset 0 0 0 2px var(--focus)}
 .tc-row.drag-over{outline:2px dashed var(--focus)}
 .tc-col-header{user-select:none;display:flex;align-items:center;gap:8px;padding:6px 8px;border-right:1px solid var(--grid);background:var(--panel)}
 .tc-col-header.drag-over{outline:2px dashed var(--focus)}
