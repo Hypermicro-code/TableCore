@@ -34,6 +34,24 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
     }
   }, [onCopy, onPaste])
 
+    // Global Alt+Arrow for innrykk/utrykk når vi står i første data-kolonne (c===0).
+  useEffect(() => {
+    const handleAltArrows = (e: KeyboardEvent) => {
+      if (!sel.start) return;
+      // Bare når vi er i første data-kolonne (ikke #)
+      if (sel.start.c !== 0) return;
+
+      if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+        const delta = e.key === 'ArrowRight' ? +1 : -1;
+        changeLevel(sel.start.r, delta);
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('keydown', handleAltArrows, { capture: true });
+    return () => document.removeEventListener('keydown', handleAltArrows, { capture: true } as any);
+  }, [sel, rows, cols]); // changeLevel/rows brukes; trygg å ha i deps
+
   // Drag refs
   const dragRow = useRef<number | null>(null)
   const dragCol = useRef<number | null>(null)
