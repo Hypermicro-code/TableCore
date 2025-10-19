@@ -9,15 +9,27 @@ export type TableCoreProps = {
   rows: Row[]
   onRowsChange: (rows: Row[]) => void
   showSummaryRow?: boolean
+  /** Varsler appen om nåværende markering (for “Ny rad under valgt”) */
+  onSelectionChange?: (sel: Selection) => void
 }
 
-export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: TableCoreProps) {
-  // Kolonnemal (drag + bredde)
+export function TableCore({
+  columns,
+  rows,
+  onRowsChange,
+  showSummaryRow,
+  onSelectionChange,
+}: TableCoreProps) {
+  // Kolonneoppsett (drag + bredde)
   const [cols, setCols] = useState(columns)
   useEffect(() => setCols(columns), [columns])
 
   // Markering
-  const [sel, setSel] = useState<Selection>({ start: null, end: null })
+  const [sel, _setSel] = useState<Selection>({ start: null, end: null })
+  function setSel(next: Selection) {
+    _setSel(next)
+    onSelectionChange?.(next)
+  }
 
   // Clipboard hook MÅ kalles på toppnivå
   const { onCopy, onPaste } = useClipboard(cols, rows, sel, onRowsChange)
@@ -33,24 +45,6 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
       document.removeEventListener('paste', handlePaste)
     }
   }, [onCopy, onPaste])
-
-    // Global Alt+Arrow for innrykk/utrykk når vi står i første data-kolonne (c===0).
-  useEffect(() => {
-    const handleAltArrows = (e: KeyboardEvent) => {
-      if (!sel.start) return;
-      // Bare når vi er i første data-kolonne (ikke #)
-      if (sel.start.c !== 0) return;
-
-      if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
-        const delta = e.key === 'ArrowRight' ? +1 : -1;
-        changeLevel(sel.start.r, delta);
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    document.addEventListener('keydown', handleAltArrows, { capture: true });
-    return () => document.removeEventListener('keydown', handleAltArrows, { capture: true } as any);
-  }, [sel, rows, cols]); // changeLevel/rows brukes; trygg å ha i deps
 
   // Drag refs
   const dragRow = useRef<number | null>(null)
@@ -73,18 +67,67 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
     return sums
   }, [rows, cols])
 
-  // Hjelpere
+  // ── Hjelpere ──────────────────────────────────────────────────────────────
   function rowHasData(r: Row) {
     return Object.values(r.cells).some(v => (v ?? '').toString().trim().length > 0)
+  }
+  function isRowEmpty(r: Row) {
+    return !rowHasData(r)
   }
   function setCell(r: number, c: number, value: string) {
     onRowsChange(produce(rows, draft => { draft[r].cells[cols[c].id] = value }))
   }
+  /** Maks nivå = (forrige rad nivå + 1). Første rad: alltid 0. */
+  function clampAllowedLevel(index: number, desired: number) {
+    if (index === 0) return 0
+    const prev = rows[index - 1]
+    const maxLevel = (prev?.level ?? 0) + 1
+    return Math.max(0, Math.min(desired, maxLevel))
+  }
+  /** Tom rad arver nivå fra forrige rad. */
+  function ensureDefaultLevel(index: number) {
+    if (index <= 0) return
+    const current = rows[index]
+    if (!current) return
+    if (!isRowEmpty(current)) return
+    const prevLevel = rows[index - 1]?.level ?? 0
+    if (current.level !== prevLevel) {
+      onRowsChange(produce(rows, draft => {
+        draft[index].level = prevLevel
+      }))
+    }
+  }
+  /** Innrykk/utrykk med reglene dine. */
+  function changeLevel(r: number, delta: number) {
+    onRowsChange(produce(rows, draft => {
+      const cur = draft[r].level
+      const desired = cur + delta
+      const clamped = clampAllowedLevel(r, desired)
+      draft[r].level = clamped
+    }))
+  }
 
-  // Celle-interaksjon
+  // Global Alt+Pil for innrykk/utrykk når markering er i første data-kolonne
+  useEffect(() => {
+    const handleAltArrows = (e: KeyboardEvent) => {
+      if (!sel.start) return
+      if (sel.start.c !== 0) return // kun i “Tittel”-kolonnen
+      if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+        const delta = e.key === 'ArrowRight' ? +1 : -1
+        changeLevel(sel.start.r, delta)
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+    document.addEventListener('keydown', handleAltArrows, { capture: true })
+    return () => document.removeEventListener('keydown', handleAltArrows as any, { capture: true } as any)
+  }, [sel, rows, cols])
+
+  // ── Celle-interaksjon ─────────────────────────────────────────────────────
   function onCellPointerDown(e: React.PointerEvent, r: number, c: number) {
     (e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
     setSel({ start: { r, c }, end: { r, c } })
+    ensureDefaultLevel(r)
   }
   function onCellPointerEnter(_e: React.PointerEvent, r: number, c: number) {
     if (sel.start) setSel(s => ({ ...s, end: { r, c } }))
@@ -93,44 +136,41 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
     setEditing({ r, c })
   }
 
-  // Tastatur
- function onKeyDown(e: React.KeyboardEvent) {
-  if (!sel.start) return
-  const { r, c } = sel.start
+  // ── Tastatur ──────────────────────────────────────────────────────────────
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!sel.start) return
+    const { r, c } = sel.start
 
-  // Redigering: Enter åpner editor (vi bruker contentEditable, så Enter=commit)
-  if (e.key === 'Enter') { setEditing({ r, c }); e.preventDefault() }
+    if (e.key === 'Enter') { setEditing({ r, c }); e.preventDefault() }
 
-  // Navigasjon mellom celler
-  if (e.key === 'Tab') {
-    setSel({
-      start: { r, c: Math.min(c + (e.shiftKey ? -1 : 1), cols.length - 1) },
-      end: null
-    })
-    e.preventDefault()
-    return
-  }
-  if (e.key === 'ArrowDown') { setSel({ start: { r: Math.min(r + 1, rows.length - 1), c }, end: null }); e.preventDefault(); return }
-  if (e.key === 'ArrowUp')   { setSel({ start: { r: Math.max(r - 1, 0), c }, end: null }); e.preventDefault(); return }
-  if (e.key === 'ArrowRight'){ setSel({ start: { r, c: Math.min(c + 1, cols.length - 1) }, end: null }); e.preventDefault(); return }
-  if (e.key === 'ArrowLeft') { setSel({ start: { r, c: Math.max(c - 1, 0) }, end: null }); e.preventDefault(); return }
+    if (e.key === 'Tab') {
+      setSel({ start: { r, c: Math.min(c + (e.shiftKey ? -1 : 1), cols.length - 1) }, end: null })
+      e.preventDefault()
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      const nr = Math.min(r + 1, rows.length - 1)
+      setSel({ start: { r: nr, c }, end: null })
+      ensureDefaultLevel(nr)
+      e.preventDefault()
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      const nr = Math.max(r - 1, 0)
+      setSel({ start: { r: nr, c }, end: null })
+      ensureDefaultLevel(nr)
+      e.preventDefault()
+      return
+    }
+    if (e.key === 'ArrowRight') { setSel({ start: { r, c: Math.min(c + 1, cols.length - 1) }, end: null }); e.preventDefault(); return }
+    if (e.key === 'ArrowLeft')  { setSel({ start: { r, c: Math.max(c - 1, 0) }, end: null }); e.preventDefault(); return }
 
-  // Innrykk / utrykk – to varianter:
-  // a) Ctrl/Cmd + ] / [
-  if ((e.ctrlKey || e.metaKey) && e.key === ']') { changeLevel(r, +1); e.preventDefault(); return }
-  if ((e.ctrlKey || e.metaKey) && e.key === '[') { changeLevel(r, -1); e.preventDefault(); return }
-
-  // b) Alt + Pil høyre/venstre (din ønskede snarvei)
-  if (e.altKey && e.key === 'ArrowRight') { changeLevel(r, +1); e.preventDefault(); return }
-  if (e.altKey && e.key === 'ArrowLeft')  { changeLevel(r, -1); e.preventDefault(); return }
-}
-  function changeLevel(r: number, delta: number) {
-    onRowsChange(produce(rows, draft => {
-      draft[r].level = Math.max(0, draft[r].level + delta)
-    }))
+    // Ctrl/Cmd + ] / [ fungerer også
+    if ((e.ctrlKey || e.metaKey) && e.key === ']') { changeLevel(r, +1); e.preventDefault(); return }
+    if ((e.ctrlKey || e.metaKey) && e.key === '[') { changeLevel(r, -1); e.preventDefault(); return }
   }
 
-  // Drag & drop – rader
+  // ── Drag & drop – rader ───────────────────────────────────────────────────
   function onRowGripDown(index: number) { dragRow.current = index }
   function onRowOver(e: React.DragEvent<HTMLDivElement>) { e.preventDefault() }
   function onRowDrop(e: React.DragEvent<HTMLDivElement>, index: number) {
@@ -146,7 +186,7 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
     dragRow.current = null
   }
 
-  // Drag & drop – kolonner
+  // ── Drag & drop – kolonner ────────────────────────────────────────────────
   function onColGripDown(index: number) { dragCol.current = index }
   function onColOver(e: React.DragEvent<HTMLDivElement>) { e.preventDefault() }
   function onColDrop(e: React.DragEvent<HTMLDivElement>, index: number) {
@@ -192,7 +232,7 @@ export function TableCore({ columns, rows, onRowsChange, showSummaryRow }: Table
           <div
             key={row.id}
             className={clsx('tc-row')}
-            style={{ gridTemplateColumns: gridTemplate }}  // ← viktig
+            style={{ gridTemplateColumns: gridTemplate }}
             draggable
             onDragOver={onRowOver}
             onDrop={(e) => onRowDrop(e, r)}
