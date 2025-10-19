@@ -10,7 +10,7 @@ export type TableCoreProps = {
   rows: Row[]
   onRowsChange: (rows: Row[]) => void
   showSummaryRow?: boolean
-  /** Varsler appen om nåværende markering (for “Ny rad under valgt”). */
+  /** Varsler appen om markering (for “Ny rad under valgt”). */
   onSelectionChange?: (sel: Selection) => void
 }
 
@@ -21,13 +21,13 @@ export function TableCore({
   showSummaryRow,
   onSelectionChange,
 }: TableCoreProps) {
-  // Kolonneoppsett (drag + bredde)
+  // Kolonner (drag + bredder)
   const [cols, setCols] = useState(columns)
   useEffect(() => setCols(columns), [columns])
 
   // Markering
   const [selState, _setSel] = useState<Selection>({ start: null, end: null })
-  function setSel(next: Selection | ((prev: Selection) => Selection)) {
+  const setSel = (next: Selection | ((prev: Selection) => Selection)) => {
     if (typeof next === 'function') {
       _setSel(prev => {
         const resolved = (next as (p: Selection) => Selection)(prev)
@@ -41,10 +41,8 @@ export function TableCore({
   }
   const sel = selState
 
-  // Clipboard hook MÅ kalles på toppnivå
+  // Clipboard
   const { onCopy, onPaste } = useClipboard(cols, rows, sel, onRowsChange)
-
-  // Globalt copy/paste
   useEffect(() => {
     const handleCopy = (e: ClipboardEvent) => onCopy(e)
     const handlePaste = (e: ClipboardEvent) => onPaste(e)
@@ -56,10 +54,22 @@ export function TableCore({
     }
   }, [onCopy, onPaste])
 
+  // Wrapper-fokus: sørg for at piltaster/Tab fanges
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  // Dra markering
+  const draggingSel = useRef(false)
+  useEffect(() => {
+    const up = () => { draggingSel.current = false }
+    document.addEventListener('pointerup', up, true)
+    return () => document.removeEventListener('pointerup', up, true)
+  }, [])
+
   // Drag refs
   const dragRow = useRef<number | null>(null)
   const dragCol = useRef<number | null>(null)
 
+  // Redigering (vi bruker <input> for tekst/nummer, ikke contentEditable)
   const [editing, setEditing] = useState<{ r: number; c: number } | null>(null)
 
   // Summeringer (number-kolonner)
@@ -129,19 +139,31 @@ export function TableCore({
         e.stopPropagation()
       }
     }
-    // capture=true for å fange før input/contentEditable
     document.addEventListener('keydown', handleAltArrows, true)
     return () => document.removeEventListener('keydown', handleAltArrows, true)
   }, [sel])
 
+  // Markering: helper for å vite om celle er innenfor aktivt utvalg
+  function isSelectedCell(r: number, c: number) {
+    if (!sel.start || !sel.end) return false
+    const r0 = Math.min(sel.start.r, sel.end.r)
+    const r1 = Math.max(sel.start.r, sel.end.r)
+    const c0 = Math.min(sel.start.c, sel.end.c)
+    const c1 = Math.max(sel.start.c, sel.end.c)
+    return r >= r0 && r <= r1 && c >= c0 && c <= c1
+  }
+
   // ── Celle-interaksjon ─────────────────────────────────────────────────────
   function onCellPointerDown(e: React.PointerEvent, r: number, c: number) {
     (e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
+    wrapRef.current?.focus() // viktig for piltaster/Tab
+    draggingSel.current = true
+    setEditing(null)
     setSel({ start: { r, c }, end: { r, c } })
     ensureDefaultLevel(r)
   }
   function onCellPointerEnter(_e: React.PointerEvent, r: number, c: number) {
-    if (sel.start) {
+    if (draggingSel.current && sel.start) {
       setSel(prev => ({ ...prev, end: { r, c } }))
     }
   }
@@ -218,13 +240,13 @@ export function TableCore({
     dragCol.current = null
   }
 
-  // Felles kolonnemal (index + alle kolonner)
+  // Kolonnemal
   const gridTemplate = useMemo(() =>
     ['52px', ...cols.map(c => (c.width ?? 160) + 'px')].join(' '),
   [cols])
 
   return (
-    <div className="tc-wrap" onKeyDown={onKeyDown} tabIndex={0}>
+    <div className="tc-wrap" ref={wrapRef} onKeyDown={onKeyDown} tabIndex={0}>
       {/* Header */}
       <div className="tc tc-header" style={{ gridTemplateColumns: gridTemplate }}>
         <div className="tc-col-header tc-index">#</div>
@@ -261,14 +283,18 @@ export function TableCore({
             {cols.map((c, colIdx) => {
               const val = row.cells[c.id] ?? ''
               const numeric = c.type === 'number'
+              const selected = isSelectedCell(r, colIdx)
+              const isEditing = editing && editing.r === r && editing.c === colIdx
+
               return (
                 <div
                   key={c.id}
-                  className={clsx('tc-cell', numeric && 'numeric')}
+                  className={clsx('tc-cell', numeric && 'numeric', selected && 'selected')}
                   onPointerDown={(e) => onCellPointerDown(e, r, colIdx)}
                   onPointerEnter={(e) => onCellPointerEnter(e, r, colIdx)}
                   onDoubleClick={() => onCellDoubleClick(r, colIdx)}
                 >
+                  {/* Innrykk markør i første datakolonne */}
                   {colIdx === 0 && (
                     <>
                       {Array.from({ length: row.level }).map((_, i) => <span key={i} className="tc-indent" />)}
@@ -276,20 +302,38 @@ export function TableCore({
                     </>
                   )}
 
+                  {/* Editor: input-felt for tekst/nummer, system-input for date/color */}
                   {c.type === 'color' ? (
-                    <input type="color" value={val || '#9ca3af'} onChange={e => setCell(r, colIdx, e.target.value)} />
+                    <input
+                      type="color"
+                      value={val || '#9ca3af'}
+                      onChange={e => setCell(r, colIdx, e.target.value)}
+                    />
                   ) : c.type === 'date' ? (
-                    <input type="date" value={val} onChange={e => setCell(r, colIdx, e.target.value)} />
+                    <input
+                      type="date"
+                      value={val}
+                      onChange={e => setCell(r, colIdx, e.target.value)}
+                      onFocus={() => setEditing({ r, c: colIdx })}
+                      onBlur={() => setEditing(null)}
+                    />
+                  ) : c.type === 'number' ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={val}
+                      onChange={e => setCell(r, colIdx, e.target.value)}
+                      onFocus={() => setEditing({ r, c: colIdx })}
+                      onBlur={() => setEditing(null)}
+                    />
                   ) : (
-                    <div
-                      contentEditable
-                      suppressContentEditableWarning
-                      spellCheck={false}
-                      onBlur={(e) => setCell(r, colIdx, (e.target as HTMLElement).innerText)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { (e.target as HTMLElement).blur(); e.preventDefault() }
-                      }}
-                    >{val}</div>
+                    <input
+                      type="text"
+                      value={val}
+                      onChange={e => setCell(r, colIdx, e.target.value)}
+                      onFocus={() => setEditing({ r, c: colIdx })}
+                      onBlur={() => setEditing(null)}
+                    />
                   )}
                 </div>
               )
