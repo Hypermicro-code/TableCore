@@ -8,11 +8,45 @@
 .tc-header{display:grid; border-bottom:1px solid var(--tc-grid); user-select:none;}
 .tc-row{display:grid; border-bottom:1px solid var(--tc-grid);}
 .tc-cell{padding:6px 8px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:default;}
-.tc-cell.editing{background:var(--tc-edit-bg);}
 .tc-idx{color:#7a7a85; text-align:right; padding-right:6px;}
 .tc-title{display:flex; align-items:center; gap:6px;}
 .tc-indent{display:inline-block; width: calc(var(--lvl)*14px);}
 .tc-summary{background:#fafafa; font-weight:600; border-bottom:1px solid var(--tc-grid);}
+
+/* Celle i redigering: samme bakgrunn/typografi som ellers, kun svart kantlinje */
+.tc-cell.editing{
+  background: transparent;          /* behold lik bakgrunn */
+  outline: 2px solid #000;          /* svart kantlinje */
+  outline-offset: -2px;
+}
+
+/* Input/textarea skal se ut som cellens tekst – ikke egen stil */
+.tc-cell input,
+.tc-cell textarea{
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;                    /* viktig: samme font som cella */
+  color: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  text-transform: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Ikke kunne “dra” textarea større */
+.tc-cell textarea{
+  resize: none;                     /* var 'vertical' – nå av */
+  min-height: 22px;                 /* liten fast høyde, ruller ved mange linjer */
+  overflow: auto;
+}
+
 
 /* Markering */
 .tc-cell.sel{background:var(--tc-sel);}
