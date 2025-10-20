@@ -9,16 +9,20 @@ function rowHasContent(row:RowData,cols:ColumnDef[]){return cols.some(c=>c.key!=
 function makeGridTemplate(cols:ColumnDef[]){return ['48px',...cols.map(c=>c.width?`${c.width}px`:'minmax(120px,1fr)')].join(' ')}
 
 const DRAG_THRESHOLD_PX = 4
+const NOSEL: Selection = { r1:-1, c1:-1, r2:-1, c2:-1 }
+const hasSel = (s:Selection)=> s.r1>=0 && s.c1>=0 && s.r2>=0 && s.c2>=0
 
 type EditMode = 'replace'|'caretEnd'|'selectAll'
+type EditingState = { r:number, c:number, mode:EditMode, seed?: string } | null
 
 export default function TableCore({columns,rows,onChange,showSummary=false,summaryValues,summaryTitle='Sammendrag'}:TableCoreProps){
   const [data,setData]=useState<RowData[]>(rows)
   useEffect(()=>setData(rows),[rows])
   const setAndPropagate=useCallback((next:RowData[])=>{setData(next);onChange(next)},[onChange])
 
-  const [sel,setSel]=useState<Selection>({r1:0,c1:0,r2:0,c2:0})
-  const [editing,setEditing]=useState<{r:number,c:number,mode:EditMode}|null>(null)
+  // START: ingen valgt celle
+  const [sel,setSel]=useState<Selection>(NOSEL)
+  const [editing,setEditing]=useState<EditingState>(null)
 
   const rootRef=useRef<HTMLDivElement|null>(null)
   const dragState=useRef<{active:boolean,dragging:boolean,r0:number,c0:number,x0:number,y0:number}|null>(null)
@@ -35,7 +39,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setEditing(null)
   }
 
-  // === Inn/utrykk + flytt rad ===
+  // === Inn/utrykk + flytt rad (vår spesial) ===
   const indentRow=(rowIdx:number,delta:number)=>{
     setAndPropagate(dataRef.current.map((r,i)=>i===rowIdx?{...r,indent:Math.max(0,r.indent+delta)}:r))
   }
@@ -46,51 +50,70 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     const [it]=arr.splice(rowIdx,1)
     arr.splice(tgt,0,it)
     setAndPropagate(arr)
-    setSel({r1:tgt,r2:tgt,c1:sel.c1,c2:sel.c1})
+    setSel(s=>hasSel(s)?{r1:tgt,r2:tgt,c1:s.c1,c2:s.c1}:{r1:tgt,r2:tgt,c1:0,c2:0})
   }
 
   // === Global key handler ===
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
-      const editingNow=editing
-      const rSel=sel.r1,cSel=sel.c1
-      const rowMax=dataRef.current.length-1,colMax=columns.length-1
-      // --- Special (ours)
+      const rowMax=dataRef.current.length-1
+      const colMax=columns.length-1
+
+      // ---- Spesial (vår)
       if(e.altKey&&!e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
+        if(!hasSel(sel)) return
         e.preventDefault()
-        indentRow(rSel,e.key==='ArrowRight'?1:-1);return
+        indentRow(sel.r1,e.key==='ArrowRight'?1:-1);return
       }
       if(e.altKey&&e.shiftKey&&(e.key==='ArrowUp'||e.key==='ArrowDown')){
+        if(!hasSel(sel)) return
         e.preventDefault()
-        moveRow(rSel,e.key==='ArrowUp'?-1:1);return
+        moveRow(sel.r1,e.key==='ArrowUp'?-1:1);return
       }
-      // --- Navigation (only if not editing)
-      if(!editingNow){
+
+      // ---- Navigasjon når vi ikke redigerer
+      if(!editing){
+        // Piltaster / Tab / Enter
         if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Enter'].includes(e.key)){
+          if(!hasSel(sel)){
+            // ingen markering enda → ikke gjør noe (som Excel før du klikker en celle)
+            return
+          }
           e.preventDefault()
-          let r=rSel,c=cSel
+          let r=sel.r1,c=sel.c1
           if(e.key==='ArrowUp')r=clamp(r-1,0,rowMax)
           if(e.key==='ArrowDown')r=clamp(r+1,0,rowMax)
           if(e.key==='ArrowLeft')c=clamp(c-1,0,colMax)
           if(e.key==='ArrowRight')c=clamp(c+1,0,colMax)
-          if(e.key==='Tab')c=(e.shiftKey?c-1:c+1);if(c<0){c=colMax;r=clamp(r-1,0,rowMax)}if(c>colMax){c=0;r=clamp(r+1,0,rowMax)}
-          if(e.key==='Enter'){r=e.shiftKey?clamp(r-1,0,rowMax):clamp(r+1,0,rowMax)}
+          if(e.key==='Tab'){
+            if(e.shiftKey){ c--; if(c<0){ c=colMax; r=clamp(r-1,0,rowMax) } }
+            else { c++; if(c>colMax){ c=0; r=clamp(r+1,0,rowMax) } }
+          }
+          if(e.key==='Enter'){ r = e.shiftKey?clamp(r-1,0,rowMax):clamp(r+1,0,rowMax) }
           setSel({r1:r,r2:r,c1:c,c2:c})
           return
         }
-        // --- Start typing = replace
-        if(e.key.length===1&&!e.ctrlKey&&!e.metaKey){
+
+        // Skriv et tegn → start redigering og **ta med første tegn**
+        if(e.key.length===1 && !e.ctrlKey && !e.metaKey){
+          if(!hasSel(sel)) return
           e.preventDefault()
-          setEditing({r:rSel,c:cSel,mode:'replace'})
+          setEditing({ r: sel.r1, c: sel.c1, mode:'replace', seed:e.key })
           return
         }
-        // --- F2 = edit caret end
-        if(e.key==='F2'){e.preventDefault();setEditing({r:rSel,c:cSel,mode:'caretEnd'})}
+
+        // F2 → redigering (caret på slutten)
+        if(e.key==='F2'){
+          if(!hasSel(sel)) return
+          e.preventDefault()
+          setEditing({ r: sel.r1, c: sel.c1, mode:'caretEnd' })
+          return
+        }
       }
     }
     document.addEventListener('keydown',onKey,true)
     return()=>document.removeEventListener('keydown',onKey,true)
-  })
+  },[columns.length, editing, sel])
 
   // === Mouse selection ===
   const setGlobalNoSelect=(on:boolean)=>{
@@ -122,17 +145,18 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     const wasDragging=dragState.current.dragging
     dragState.current.active=false;dragState.current.dragging=false;setGlobalNoSelect(false)
     if(suppressClickToEditOnce.current){suppressClickToEditOnce.current=false;return}
-    if(!wasDragging){/* bare velg */ }
+    if(!wasDragging){/* bare velg – ingen auto-edit på click */}
   }
 
   const onCellDoubleClick=(r:number,c:number)=>(ev:React.MouseEvent)=>{
     ev.preventDefault()
     suppressClickToEditOnce.current=true
-    setEditing({r,c,mode:'selectAll'})
+    setEditing({ r, c, mode:'selectAll' })
   }
 
   // === Clipboard ===
   const onCopy=(e:React.ClipboardEvent)=>{
+    if(!hasSel(sel)) return
     const {r1,r2,c1,c2}=sel
     const m:string[][]=[]
     for(let r=r1;r<=r2;r++){
@@ -144,6 +168,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     e.clipboardData.setData('text/plain',toTSV(m));e.preventDefault()
   }
   const onPaste=(e:React.ClipboardEvent)=>{
+    if(!hasSel(sel)) return
     const txt=e.clipboardData.getData('text/plain');if(!txt)return
     e.preventDefault()
     const m=parseClipboard(txt)
@@ -156,7 +181,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(next)
   }
 
-  // === Sammendrag ===
+  // === Sammendrag (uendret) ===
   const sums=useMemo(()=>{
     if(!showSummary||summaryValues)return null
     const s:Record<string,CellValue>={}
@@ -174,13 +199,13 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   return (
   <div ref={rootRef} className="tc-root" onCopy={onCopy} onPaste={onPaste}>
     <div className="tc-wrap" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
-      {/* header */}
+      {/* header (uendret) */}
       <div className="tc-header" style={{gridTemplateColumns:gridCols}}>
         <div className="tc-cell tc-idx">#</div>
         {columns.map(col=><div key={col.key} className="tc-cell">{col.title}</div>)}
       </div>
 
-      {/* summary */}
+      {/* summary (uendret) */}
       {showSummary&&sums&&(
         <div className="tc-row tc-summary" style={{gridTemplateColumns:gridCols}}>
           <div className="tc-cell tc-idx"></div>
@@ -188,61 +213,76 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         </div>
       )}
 
-      {/* rows */}
+      {/* rows (utseende uendret) */}
       {data.map((row,rIdx)=>{
         const showIndex=rowHasContent(row,columns)
         return(
         <div key={row.id} className="tc-row" style={{gridTemplateColumns:gridCols}}>
           <div className="tc-cell tc-idx">{showIndex?rIdx+1:''}</div>
           {columns.map((col,cIdx)=>{
-            const inSel=rIdx>=sel.r1&&rIdx<=sel.r2&&cIdx>=sel.c1&&cIdx<=sel.c2
+            const inSel = hasSel(sel) && rIdx>=sel.r1&&rIdx<=sel.r2&&cIdx>=sel.c1&&cIdx<=sel.c2
             const top=inSel&&rIdx===sel.r1,bottom=inSel&&rIdx===sel.r2,left=inSel&&cIdx===sel.c1,right=inSel&&cIdx===sel.c2
             const classes=['tc-cell'];if(inSel)classes.push('sel');if(top)classes.push('sel-top');if(bottom)classes.push('sel-bottom');if(left)classes.push('sel-left');if(right)classes.push('sel-right')
 
-            const editingHere=editing&&editing.r===rIdx&&editing.c===cIdx
-            const val=row.cells[col.key]??''
+            const editingHere=!!editing && editing.r===rIdx && editing.c===cIdx
+            const currentVal = String(row.cells[col.key] ?? '')
 
             if(editingHere){
-              return(
-              <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
-                {isNumericColumn(col)?
-                  <input autoFocus defaultValue={String(val)}
-                    ref={el=>{
-                      if(!el)return;requestAnimationFrame(()=>{
-                        if(editing.mode==='selectAll')el.select()
-                        else if(editing.mode==='caretEnd'){const e=el.value.length;el.setSelectionRange(e,e)}
-                      })
-                    }}
-                    onBlur={e=>commitEdit(rIdx,cIdx,e.currentTarget.value)}
-                    onKeyDown={e=>{
-                      if(e.key==='Enter'){e.preventDefault();commitEdit(rIdx,cIdx,e.currentTarget.value);setSel(s=>({r1:clamp(rIdx+1,0,data.length-1),r2:clamp(rIdx+1,0,data.length-1),c1:cIdx,c2:cIdx}))}
-                      if(e.key==='Escape'){e.preventDefault();setEditing(null)}
-                    }}
-                    type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}/>
-                :
-                  <textarea autoFocus defaultValue={String(val)}
-                    ref={el=>{
-                      if(!el)return;requestAnimationFrame(()=>{
-                        if(editing.mode==='selectAll')el.select()
-                        else if(editing.mode==='caretEnd'){const e=el.value.length;el.setSelectionRange(e,e)}
-                      })
-                    }}
-                    onBlur={e=>commitEdit(rIdx,cIdx,e.currentTarget.value)}
-                    onKeyDown={e=>{
-                      if(e.key==='Enter'&&e.altKey){ // Alt+Enter = linjeskift
-                        e.preventDefault()
-                        const ta=e.currentTarget
-                        const pos=ta.selectionStart??ta.value.length
-                        ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos)
-                        ta.setSelectionRange(pos+1,pos+1)
-                        return
-                      }
-                      if(e.key==='Enter'){e.preventDefault();commitEdit(rIdx,cIdx,e.currentTarget.value);setSel(s=>({r1:clamp(rIdx+1,0,data.length-1),r2:clamp(rIdx+1,0,data.length-1),c1:cIdx,c2:cIdx}))}
-                      if(e.key==='Escape'){e.preventDefault();setEditing(null)}
-                    }}
-                    style={{width:'100%',border:'none',outline:'none',background:'transparent',resize:'vertical',minHeight:'22px'}}/>
-                }
-              </div>)
+              if(isNumericColumn(col)){
+                // For tall: bruk seed KUN hvis den er et talltegn
+                const seed = editing!.seed && /[0-9\-\.,]/.test(editing!.seed) ? editing!.seed : ''
+                const defaultValue = editing!.mode==='replace' ? seed : currentVal
+                return(
+                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
+                    <input
+                      autoFocus
+                      defaultValue={defaultValue}
+                      ref={el=>{
+                        if(!el)return;requestAnimationFrame(()=>{
+                          if(editing!.mode==='selectAll')el.select()
+                          else if(editing!.mode==='caretEnd'){const e=el.value.length;el.setSelectionRange(e,e)}
+                          else if(editing!.mode==='replace'){const e=el.value.length;el.setSelectionRange(e,e)}
+                        })
+                      }}
+                      onBlur={e=>commitEdit(rIdx,cIdx,e.currentTarget.value)}
+                      onKeyDown={e=>{
+                        if(e.key==='Enter'){e.preventDefault();commitEdit(rIdx,cIdx,e.currentTarget.value)}
+                        if(e.key==='Escape'){e.preventDefault();setEditing(null)}
+                      }}
+                      type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}
+                    />
+                  </div>
+                )
+              } else {
+                const defaultValue = editing!.mode==='replace' ? (editing!.seed ?? '') : currentVal
+                return(
+                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
+                    <textarea
+                      autoFocus
+                      defaultValue={defaultValue}
+                      ref={el=>{
+                        if(!el)return;requestAnimationFrame(()=>{
+                          if(editing!.mode==='selectAll')el.select()
+                          else { const e=el.value.length; el.setSelectionRange(e,e) } // caretEnd & replace
+                        })
+                      }}
+                      onBlur={e=>commitEdit(rIdx,cIdx,e.currentTarget.value)}
+                      onKeyDown={e=>{
+                        if(e.key==='Enter' && e.altKey){ // Alt+Enter = linjeskift
+                          e.preventDefault()
+                          const ta=e.currentTarget
+                          const pos=ta.selectionStart??ta.value.length
+                          ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos)
+                          ta.setSelectionRange(pos+1,pos+1); return
+                        }
+                        if(e.key==='Enter'){e.preventDefault();commitEdit(rIdx,cIdx,e.currentTarget.value)}
+                        if(e.key==='Escape'){e.preventDefault();setEditing(null)}
+                      }}
+                      style={{width:'100%',border:'none',outline:'none',background:'transparent',resize:'vertical',minHeight:'22px'}}
+                    />
+                  </div>
+                )
+              }
             }
 
             return(
@@ -250,13 +290,14 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
               className={classes.join(' ')}
               data-cell data-r={rIdx} data-c={cIdx}
               onMouseDown={onCellMouseDown(rIdx,cIdx)}
-              onDoubleClick={onCellDoubleClick(rIdx,cIdx)}>
+              onDoubleClick={onCellDoubleClick(rIdx,cIdx)}
+              title={currentVal}>
               {col.isTitle?
                 <span className="tc-title">
                   <span className="tc-indent" style={{['--lvl' as any]:row.indent}}/>
-                  <span>{String(val)}</span>
+                  <span>{currentVal}</span>
                 </span>
-              :<span>{String(val)}</span>}
+              : <span>{currentVal}</span>}
             </div>)
           })}
         </div>)
