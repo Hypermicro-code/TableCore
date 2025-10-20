@@ -1,0 +1,29 @@
+{
+  "file.new": "Ny",
+  "file.open": "Åpne",
+  "file.import": "Importer",
+  "file.export": "Eksporter",
+  "file.save": "Lagre",
+  "file.saveas": "Lagre som",
+  "status.saved": "Lagret",
+  "status.autosave": "Autolagring",
+  "status.offline": "Frakoblet",
+
+  "edit.undo": "Angre",
+  "edit.redo": "Gjør om",
+
+  "view.compact": "Kompakt",
+  "view.comfortable": "Komfortabel",
+  "view.zoomout": "Zoom −",
+  "view.zoomin": "Zoom +",
+  "view.zoomreset": "100%",
+
+  "hierarchy.indent": "Innrykk",
+  "hierarchy.outdent": "Utrykk",
+
+  "search.placeholder": "Søk…",
+  "help.shortcuts": "Snarveier",
+  "help.whatsnew": "Hva er nytt",
+  "user.profile": "Profil",
+  "sync.status": "Synk"
+}
