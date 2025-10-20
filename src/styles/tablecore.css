@@ -50,4 +50,20 @@
 .tc-disc:focus{ outline:1px dashed #bbb; outline-offset:2px; }
 /* ==== [BLOCK: Disclosure Button] END ==== */
 
+/* ==== [BLOCK: DnD styling] BEGIN ==== */
+.tc-header-cell {
+  cursor: grab;
+}
+.tc-header-cell:active {
+  cursor: grabbing;
+}
+.tc-row-handle {
+  cursor: grab;
+}
+.tc-row-handle:active {
+  cursor: grabbing;
+}
+/* (Valgfritt) litt diskret drop-indikasjon kan legges til senere */
+/* ==== [BLOCK: DnD styling] END ==== */
+
 /* ==== [BLOCK: TableCore CSS] END ==== */
