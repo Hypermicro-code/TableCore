@@ -7,23 +7,23 @@ import {
   Save, Undo2, Redo2, ZoomIn, ZoomOut, Square,
   Scissors, Copy, ClipboardPaste, Search,
   ChevronRight, ChevronLeft, Trash2, Plus, HelpCircle,
-  FileUp, FileDown, Import, Export, ListFilter
+  Upload, Download, ListFilter, FileUp
 } from "lucide-react"
 
 /* ===== [BLOCK: Default Commands] ===== */
 registerCommands([
   // File
-  { id: "toolbar.file.save",   labelKey:"file.save",   icon:<Save/>,        group:"file",  shortcut:"Ctrl+S",        run:(ctx)=>alert("Lagre (demo)") },
-  { id: "toolbar.file.import", labelKey:"file.import", icon:<Import/>,      group:"file",                          run:()=>alert("Importer (demo)") },
-  { id: "toolbar.file.export", labelKey:"file.export", icon:<Export/>,      group:"file",                          run:()=>alert("Eksporter (demo)") },
+  { id: "toolbar.file.save",   labelKey:"file.save",   icon:<Save/>,    group:"file",  shortcut:"Ctrl+S",        run:(ctx)=>alert("Lagre (demo)") },
+  { id: "toolbar.file.import", labelKey:"file.import", icon:<Upload/>,  group:"file",                          run:()=>alert("Importer (demo)") },
+  { id: "toolbar.file.export", labelKey:"file.export", icon:<Download/>,group:"file",                          run:()=>alert("Eksporter (demo)") },
 
   // Edit
-  { id:"toolbar.edit.cut",     labelKey:"edit.cut",    icon:<Scissors/>,    group:"edit",                          run:()=>alert("Klipp (demo)") },
-  { id:"toolbar.edit.copy",    labelKey:"edit.copy",   icon:<Copy/>,        group:"edit",                          run:()=>alert("Kopier (demo)") },
-  { id:"toolbar.edit.paste",   labelKey:"edit.paste",  icon:<ClipboardPaste/>, group:"edit",                        run:()=>alert("Lim inn (demo)") },
-  { id:"toolbar.edit.undo",    labelKey:"edit.undo",   icon:<Undo2/>,       group:"edit",  shortcut:"Ctrl+Z",      run:()=>alert("Angre (demo)") },
-  { id:"toolbar.edit.redo",    labelKey:"edit.redo",   icon:<Redo2/>,       group:"edit",  shortcut:"Shift+Ctrl+Z", run:()=>alert("Gjør om (demo)") },
-  { id:"toolbar.edit.delete",  labelKey:"edit.delete", icon:<Trash2/>,      group:"edit",                          run:()=>alert("Slett (demo)") },
+  { id:"toolbar.edit.cut",     labelKey:"edit.cut",    icon:<Scissors/>,      group:"edit",                          run:()=>alert("Klipp (demo)") },
+  { id:"toolbar.edit.copy",    labelKey:"edit.copy",   icon:<Copy/>,          group:"edit",                          run:()=>alert("Kopier (demo)") },
+  { id:"toolbar.edit.paste",   labelKey:"edit.paste",  icon:<ClipboardPaste/>,group:"edit",                          run:()=>alert("Lim inn (demo)") },
+  { id:"toolbar.edit.undo",    labelKey:"edit.undo",   icon:<Undo2/>,         group:"edit",  shortcut:"Ctrl+Z",      run:()=>alert("Angre (demo)") },
+  { id:"toolbar.edit.redo",    labelKey:"edit.redo",   icon:<Redo2/>,         group:"edit",  shortcut:"Shift+Ctrl+Z", run:()=>alert("Gjør om (demo)") },
+  { id:"toolbar.edit.delete",  labelKey:"edit.delete", icon:<Trash2/>,        group:"edit",                          run:()=>alert("Slett (demo)") },
 
   // View
   { id:"toolbar.view.zoomout",  labelKey:"view.zoomout",  icon:<ZoomOut/>, group:"view", run:()=>alert("Zoom − (demo)") },
@@ -114,8 +114,7 @@ export default function ToolbarCore({
             <span className="tb-icon"><Search/></span>
             <span>{t("search.placeholder")}</span>
           </span>
-          {/* === KLARGJORT FOR LOGO / APP-INNHOLD === */}
-          {headerRight /* appen kan sende inn <img className="menu-logo" .../> eller en komponent */}
+          {headerRight /* appen kan injisere logo/innhold */}
         </div>
       </div>
 
