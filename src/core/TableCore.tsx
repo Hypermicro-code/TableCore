@@ -27,6 +27,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const rootRef=useRef<HTMLDivElement|null>(null)
   const dragState=useRef<{active:boolean,dragging:boolean,r0:number,c0:number,x0:number,y0:number}|null>(null)
   const suppressClickToEditOnce=useRef(false)
+  const skipBlurCommit=useRef(false) // hindrer dobbelt-commit når vi commit’er via Enter/Tab
 
   const dataRef=useRef(data);useEffect(()=>{dataRef.current=data},[data])
 
@@ -37,6 +38,24 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     const next=dataRef.current.map((row,i)=>i===r?{...row,cells:{...row.cells,[col.key]:parsed}}:row)
     setAndPropagate(next)
     setEditing(null)
+  }
+
+  // hjelper: beregn neste celle ved navigasjon
+  const nextPosAfter = (r:number,c:number,dir:'down'|'up'|'right'|'left')=>{
+    const rowMax=dataRef.current.length-1
+    const colMax=columns.length-1
+    let rr=r, cc=c
+    if(dir==='down'){ rr=clamp(r+1,0,rowMax) }
+    if(dir==='up'){ rr=clamp(r-1,0,rowMax) }
+    if(dir==='right'){
+      cc=c+1
+      if(cc>colMax){ cc=0; rr=clamp(r+1,0,rowMax) }
+    }
+    if(dir==='left'){
+      cc=c-1
+      if(cc<0){ cc=colMax; rr=clamp(r-1,0,rowMax) }
+    }
+    return {r:rr,c:cc}
   }
 
   // === Inn/utrykk + flytt rad (vår spesial) ===
@@ -73,18 +92,14 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
       // ---- Navigasjon når vi ikke redigerer
       if(!editing){
-        // Piltaster / Tab / Enter
         if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Enter'].includes(e.key)){
-          if(!hasSel(sel)){
-            // ingen markering enda → ikke gjør noe (som Excel før du klikker en celle)
-            return
-          }
+          if(!hasSel(sel)) return
           e.preventDefault()
           let r=sel.r1,c=sel.c1
           if(e.key==='ArrowUp')r=clamp(r-1,0,rowMax)
           if(e.key==='ArrowDown')r=clamp(r+1,0,rowMax)
-          if(e.key==='ArrowLeft')c=clamp(c-1,0,colMax)
-          if(e.key==='ArrowRight')c=clamp(c+1,0,colMax)
+          if(e.key==='ArrowLeft')c=clamp(c-1,0,columns.length-1)
+          if(e.key==='ArrowRight')c=clamp(c+1,0,columns.length-1)
           if(e.key==='Tab'){
             if(e.shiftKey){ c--; if(c<0){ c=colMax; r=clamp(r-1,0,rowMax) } }
             else { c++; if(c>colMax){ c=0; r=clamp(r+1,0,rowMax) } }
@@ -228,8 +243,20 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             const currentVal = String(row.cells[col.key] ?? '')
 
             if(editingHere){
+              // Felles hjelpefunksjon for Enter/Tab commit+flytt
+              const handleCommitMove = (value:string, key:string, isTextarea:boolean, e:React.KeyboardEvent)=>{
+                const dir =
+                  key==='Enter' ? (e.shiftKey ? 'up' : 'down') :
+                  key==='Tab'   ? (e.shiftKey ? 'left' : 'right') : null
+                if(!dir) return
+                e.preventDefault()
+                skipBlurCommit.current = true
+                commitEdit(rIdx,cIdx,value)
+                const next = nextPosAfter(rIdx,cIdx,dir)
+                setSel({r1:next.r,r2:next.r,c1:next.c,c2:next.c})
+              }
+
               if(isNumericColumn(col)){
-                // For tall: bruk seed KUN hvis den er et talltegn
                 const seed = editing!.seed && /[0-9\-\.,]/.test(editing!.seed) ? editing!.seed : ''
                 const defaultValue = editing!.mode==='replace' ? seed : currentVal
                 return(
@@ -240,14 +267,19 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                       ref={el=>{
                         if(!el)return;requestAnimationFrame(()=>{
                           if(editing!.mode==='selectAll')el.select()
-                          else if(editing!.mode==='caretEnd'){const e=el.value.length;el.setSelectionRange(e,e)}
-                          else if(editing!.mode==='replace'){const e=el.value.length;el.setSelectionRange(e,e)}
+                          else { const e=el.value.length; el.setSelectionRange(e,e) }
                         })
                       }}
-                      onBlur={e=>commitEdit(rIdx,cIdx,e.currentTarget.value)}
+                      onBlur={e=>{
+                        if(skipBlurCommit.current){ skipBlurCommit.current=false; return }
+                        commitEdit(rIdx,cIdx,e.currentTarget.value)
+                      }}
                       onKeyDown={e=>{
-                        if(e.key==='Enter'){e.preventDefault();commitEdit(rIdx,cIdx,e.currentTarget.value)}
-                        if(e.key==='Escape'){e.preventDefault();setEditing(null)}
+                        if(e.key==='Enter' || e.key==='Tab'){
+                          handleCommitMove((e.target as HTMLInputElement).value, e.key, false, e)
+                          return
+                        }
+                        if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
                       }}
                       type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}
                     />
@@ -263,20 +295,27 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                       ref={el=>{
                         if(!el)return;requestAnimationFrame(()=>{
                           if(editing!.mode==='selectAll')el.select()
-                          else { const e=el.value.length; el.setSelectionRange(e,e) } // caretEnd & replace
+                          else { const e=el.value.length; el.setSelectionRange(e,e) }
                         })
                       }}
-                      onBlur={e=>commitEdit(rIdx,cIdx,e.currentTarget.value)}
+                      onBlur={e=>{
+                        if(skipBlurCommit.current){ skipBlurCommit.current=false; return }
+                        commitEdit(rIdx,cIdx,e.currentTarget.value)
+                      }}
                       onKeyDown={e=>{
-                        if(e.key==='Enter' && e.altKey){ // Alt+Enter = linjeskift
+                        if(e.key==='Enter' && e.altKey){
                           e.preventDefault()
                           const ta=e.currentTarget
                           const pos=ta.selectionStart??ta.value.length
                           ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos)
-                          ta.setSelectionRange(pos+1,pos+1); return
+                          ta.setSelectionRange(pos+1,pos+1)
+                          return
                         }
-                        if(e.key==='Enter'){e.preventDefault();commitEdit(rIdx,cIdx,e.currentTarget.value)}
-                        if(e.key==='Escape'){e.preventDefault();setEditing(null)}
+                        if(e.key==='Enter' || e.key==='Tab'){
+                          handleCommitMove((e.target as HTMLTextAreaElement).value, e.key, true, e)
+                          return
+                        }
+                        if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
                       }}
                       style={{width:'100%',border:'none',outline:'none',background:'transparent',resize:'vertical',minHeight:'22px'}}
                     />
