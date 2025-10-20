@@ -22,4 +22,18 @@
 .tc-root.tc-noselect, .tc-root.tc-noselect * {
   user-select: none !important;
 }
+
+/* ==== [BLOCK: Parent/Child Typography] BEGIN ==== */
+/* Parent-rader: fet + store bokstaver (hele raden) */
+.tc-row.tc-parent .tc-cell {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+/* Barn (indent > 0): kursiv (hele raden) */
+.tc-row.tc-child .tc-cell {
+  font-style: italic;
+}
+/* Kombinasjon parent+child = fet + kursiv + uppercase (automatisk av de to reglene) */
+/* ==== [BLOCK: Parent/Child Typography] END ==== */
+
 /* ==== [BLOCK: TableCore CSS] END ==== */
