@@ -17,17 +17,18 @@ type EditMode = 'replace'|'caretEnd'|'selectAll'
 type EditingState = { r:number, c:number, mode:EditMode, seed?: string } | null
 
 // ===== Dato-hjelpere =====
-const toDateMs = (v:CellValue): number | null => {
+type Ms = number
+const toDateMs = (v:CellValue): Ms | null => {
   if (typeof v === 'number') { const d = new Date(v); return isNaN(+d) ? null : +d }
   if (typeof v === 'string' && v.trim()){ const d = new Date(v); return isNaN(+d) ? null : +d }
   return null
 }
-const fmtDate = (ms:number) => {
+const fmtDate = (ms:Ms) => {
   const d = new Date(ms)
   const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0')
   return `${y}-${m}-${day}`
 }
-const fmtDatetime = (ms:number) => {
+const fmtDatetime = (ms:Ms) => {
   const d = new Date(ms)
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0')
   return `${fmtDate(ms)} ${hh}:${mm}`
@@ -67,10 +68,10 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
         }
         rec[col.key] = sum
       } else if (isDateColumn(col)){
-        let minMs: number | undefined, maxMs: number | undefined
+        let minMs: Ms | undefined, maxMs: Ms | undefined
         for (const k of kids){
           const childAgg = rollups.get(k)
-          let childMin: number | null = null, childMax: number | null = null
+          let childMin: Ms | null = null, childMax: Ms | null = null
           if (childAgg){
             const cMin = childAgg[`${col.key}__min_ms`], cMax = childAgg[`${col.key}__max_ms`]
             if (typeof cMin==='number') childMin=cMin
@@ -97,7 +98,10 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
   return { rollups, hasChildren }
 }
 
-export default function TableCore({columns,rows,onChange,showSummary=false,summaryValues,summaryTitle='Sammendrag'}:TableCoreProps){
+export default function TableCore(props:TableCoreProps){
+  const { columns, rows, onChange, showSummary=false, summaryValues, summaryTitle='Sammendrag', ui } = props
+
+  // kolonner og data i lokal state
   const [cols, setCols] = useState<ColumnDef[]>(columns)
   useEffect(()=>setCols(columns),[columns])
 
@@ -105,6 +109,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   useEffect(()=>setData(rows),[rows])
   const setAndPropagate=useCallback((next:RowData[])=>{setData(next);onChange(next)},[onChange])
 
+  // selection / editing
   const [sel,setSel]=useState<Selection>(NOSEL)
   const [editing,setEditing]=useState<EditingState>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -116,6 +121,19 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const skipBlurCommit=useRef(false)
   const dataRef=useRef(data);useEffect(()=>{dataRef.current=data},[data])
   const colsRef=useRef(cols);useEffect(()=>{colsRef.current=cols},[cols])
+
+  // ====== UI-variabler fra app (valgfritt)
+  const rootStyleVars = useMemo(()=>({
+    ...(ui?.fontSizePx ? {'--tc-font-size': `${ui.fontSizePx}px`} : {}),
+    ...(ui?.rowHeightPx ? {'--tc-row-h': `${ui.rowHeightPx}px`} : {}),
+    ...(ui?.colors?.bg       ? {'--tc-bg': ui.colors.bg} : {}),
+    ...(ui?.colors?.fg       ? {'--tc-fg': ui.colors.fg} : {}),
+    ...(ui?.colors?.grid     ? {'--tc-grid': ui.colors.grid} : {}),
+    ...(ui?.colors?.accent   ? {'--tc-accent': ui.colors.accent} : {}),
+    ...(ui?.colors?.sel      ? {'--tc-sel': ui.colors.sel} : {}),
+    ...(ui?.colors?.selBorder? {'--tc-sel-border': ui.colors.selBorder} : {}),
+    ...(ui?.colors?.editBg   ? {'--tc-edit-bg': ui.colors.editBg} : {}),
+  }) as React.CSSProperties,[ui])
 
   const commitEdit=(r:number,c:number,val:string)=>{
     const col=colsRef.current[c]
@@ -137,7 +155,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   }
   const isInsideBlock = (idx:number, s:number, e:number) => idx>=s && idx<=e
 
-  // Søsken-område
   const siblingRange = (idx:number) => {
     const arr = dataRef.current
     const L = arr[idx]?.indent ?? 0
@@ -195,7 +212,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return { r: visible[vi], c }
   }
 
-  // ==== Inn/utrykk (låst begrensning) ====
+  // ==== Inn/utrykk (låst) ====
   const indentRow=(rowIdx:number,delta:number)=>{
     const arr = dataRef.current
     const cur = arr[rowIdx]; if(!cur) return
@@ -207,7 +224,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(arr.map((r,i)=> i===rowIdx ? { ...r, indent: nextIndent } : r))
   }
 
-  // ==== Global key handler (låst – ingen rad-flytting med tast) ====
+  // ==== Tastnavigasjon (låst) ====
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       const colMax=colsRef.current.length-1
@@ -241,7 +258,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return()=>document.removeEventListener('keydown',onKey,true)
   },[editing, sel])
 
-  // ==== Mouse selection (låst) ====
+  // ==== Mus-seleksjon (låst) ====
   const setGlobalNoSelect=(on:boolean)=>{ const el=rootRef.current; if(!el)return; el.classList.toggle('tc-noselect',on) }
   const onCellMouseDown=(r:number,c:number)=>(ev:React.MouseEvent)=>{ setSel({r1:r,r2:r,c1:c,c2:c}); dragState.current={active:true,dragging:false,r0:r,c0:c,x0:ev.clientX,y0:ev.clientY} }
   const onMouseMove=(ev:React.MouseEvent)=>{
@@ -329,17 +346,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const gridCols=useMemo(()=>makeGridTemplate(cols),[cols])
 
   // ==== Collapse (låst inkl. Alt-kaskade) ====
-  const getDescendantParentIds = useCallback((startIdx:number): string[]=>{
-    const ids:string[] = []
-    const startIndent = data[startIdx]?.indent ?? 0
-    for (let i=startIdx+1;i<data.length;i++){
-      const r = data[i]
-      if (r.indent <= startIndent) break
-      if (hasChildren.has(i)) ids.push(r.id)
-    }
-    return ids
-  },[data, hasChildren])
-
   const toggleCollapse = (rowId:string, cascadeIds: string[] = []) => {
     setCollapsed(prev=>{
       const n = new Set(prev)
@@ -368,46 +374,58 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     })
   }
 
+  // ======== KOLONNE-RESIZE (NYTT) ========
+  const resizeRef = useRef<{ idx:number, startX:number, startW:number }|null>(null)
+
+  const onColResizeDown = (idx:number)=>(e:React.MouseEvent)=>{
+    const col = colsRef.current[idx]; const startW = col.width ?? (rootRef.current?.querySelectorAll('.tc-header .tc-cell')[idx+1] as HTMLElement)?.getBoundingClientRect().width ?? 120
+    resizeRef.current = { idx, startX: e.clientX, startW }
+    document.addEventListener('mousemove', onColResizeMove)
+    document.addEventListener('mouseup', onColResizeUp, { once: true })
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  const onColResizeMove = (e:MouseEvent)=>{
+    if(!resizeRef.current) return
+    const { idx, startX, startW } = resizeRef.current
+    const dx = e.clientX - startX
+    const newW = clamp(Math.round(startW + dx), 60, 1000)
+    const next = colsRef.current.slice()
+    next[idx] = { ...next[idx], width: newW }
+    setCols(next)
+  }
+  const onColResizeUp = ()=>{
+    document.removeEventListener('mousemove', onColResizeMove)
+    resizeRef.current = null
+  }
+
   // ======== RAD-DRAG (blokk, samme nivå, over/under) ========
   const onRowDragStart = (rowIdx:number)=>(e:React.DragEvent)=>{ e.dataTransfer.setData('text/x-row-index', String(rowIdx)); e.dataTransfer.effectAllowed = 'move'; setRowDropHint(null) }
   const onRowDragEnd = () => { setRowDropHint(null) }
-
   const onRowDragOver = (rowIdx:number)=>(e:React.DragEvent)=>{
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-
     const fromStr = e.dataTransfer.getData('text/x-row-index')
     if (!fromStr) { setRowDropHint(null); return }
     const from = Number(fromStr)
     if (Number.isNaN(from)) { setRowDropHint(null); return }
-
     const arr = dataRef.current
     const { start: sA, end: eA, baseIndent: L } = blockOf(from)
-
-    // ugyldig mål? (annet nivå eller inne i egen blokk)
     if (!arr[rowIdx] || arr[rowIdx].indent !== L || (rowIdx>=sA && rowIdx<=eA)) { setRowDropHint(null); return }
-
-    // Finn over/under basert på museposisjon
     const rowEl = (rootRef.current)?.querySelector(`.tc-row[data-r="${rowIdx}"]`) as HTMLElement | null
     if (!rowEl) { setRowDropHint(null); return }
     const rect = rowEl.getBoundingClientRect()
     const after = (e.clientY > rect.top + rect.height/2)
-
-    // Vis hint
     setRowDropHint({ idx: rowIdx, after })
   }
-
   const onRowDrop = (rowIdx:number)=>(e:React.DragEvent)=>{
     e.preventDefault()
     const fromStr = e.dataTransfer.getData('text/x-row-index'); if (fromStr==='') { setRowDropHint(null); return }
     const from = Number(fromStr); if (Number.isNaN(from) || from===rowIdx) { setRowDropHint(null); return }
-
     const arr = dataRef.current.slice()
     const { start: sA, end: eA, baseIndent: L } = blockOf(from)
-    if (isInsideBlock(rowIdx, sA, eA)) { setRowDropHint(null); return } // ikke slippe inni egen blokk
-    if (arr[rowIdx]?.indent !== L) { setRowDropHint(null); return } // mål må være samme nivå
-
-    // Bestem OVER/UNDER samme som i dragOver (fallback hvis DOM ikke finnes)
+    if (rowIdx>=sA && rowIdx<=eA) { setRowDropHint(null); return }
+    if (arr[rowIdx]?.indent !== L) { setRowDropHint(null); return }
     let placeAfterTargetBlock = false
     const rowEl = (rootRef.current)?.querySelector(`.tc-row[data-r="${rowIdx}"]`) as HTMLElement | null
     if (rowEl){
@@ -416,8 +434,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     } else if (rowDropHint && rowDropHint.idx===rowIdx){
       placeAfterTargetBlock = rowDropHint.after
     }
-
-    // Finn mål-blokk lokalt
     const blockOfLocal = (idx:number) => {
       const baseIndent = arr[idx]?.indent ?? 0
       let end = idx
@@ -428,21 +444,20 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
       return { start: idx, end, baseIndent }
     }
     const { start: sB, end: eB } = blockOfLocal(rowIdx)
-
     let insertAt = placeAfterTargetBlock ? eB + 1 : sB
-
     const blockA = arr.slice(sA, eA+1)
     arr.splice(sA, blockA.length)
     if (insertAt > sA) insertAt -= blockA.length
     arr.splice(insertAt, 0, ...blockA)
-
     setAndPropagate(arr)
     setSel({ r1: insertAt, r2: insertAt, c1: sel.c1, c2: sel.c1 })
     setRowDropHint(null)
   }
 
+  const gridCols=useMemo(()=>makeGridTemplate(cols),[cols])
+
   return (
-  <div ref={rootRef} className="tc-root" onCopy={onCopy} onPaste={onPaste}>
+  <div ref={rootRef} className="tc-root" style={rootStyleVars} onCopy={onCopy} onPaste={onPaste}>
     <div className="tc-wrap" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
       {/* header */}
       <div className="tc-header" style={{gridTemplateColumns:gridCols}}>
@@ -457,7 +472,13 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             onDrop={(e)=>{ onHeaderDrop(idx)(e) }}
             title="Dra for å flytte kolonne"
           >
-            {col.title}
+            <span className="tc-header-label">{col.title}</span>
+            {/* NYTT: resize-grepper */}
+            <span
+              className="tc-col-resizer"
+              onMouseDown={onColResizeDown(idx)}
+              title="Dra for å endre bredde"
+            />
           </div>
         )}
       </div>
@@ -501,22 +522,14 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         }
 
         return(
-                  <div
-            key={row.id}
-            className={rowClasses.join(' ')}
-            style={{gridTemplateColumns:gridCols}}
-            data-r={rVisibleIdx}
-            onDragOver={onRowDragOver(rVisibleIdx)}
-            onDrop={onRowDrop(rVisibleIdx)}
-          >
+        <div key={row.id} className={rowClasses.join(' ')} style={{gridTemplateColumns:gridCols}} data-r={rVisibleIdx}
+             onDragOver={onRowDragOver(rVisibleIdx)} onDrop={onRowDrop(rVisibleIdx)}>
           {/* # kolonne = drag handle for blokk */}
           <div
             className="tc-cell tc-idx tc-row-handle"
             draggable
             onDragStart={onRowDragStart(rVisibleIdx)}
             onDragEnd={onRowDragEnd}
-            onDragOver={onRowDragOver(rVisibleIdx)}
-            onDrop={onRowDrop(rVisibleIdx)}
             title="Dra for å flytte rad (innen samme innrykk)"
           >
             {showIndex? visiblePos+1 : ''}
@@ -566,7 +579,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             ) : null
 
             if(editingHere){
-              classes.push('editing');
+              classes.push('editing')
               const handleCommitMove = (value:string, key:string, _isTextarea:boolean, e:React.KeyboardEvent)=>{
                 const dir = key==='Enter' ? (e.shiftKey ? 'up' : 'down') : key==='Tab' ? (e.shiftKey ? 'left' : 'right') : null
                 if(!dir) return
@@ -584,7 +597,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                       ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
                       onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
                       onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLInputElement).value,e.key,false,e); return } if(e.key==='Escape'){ e.preventDefault(); setEditing(null) } }}
-                      type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}
+                      type="number"
                     />
                   </div>
                 )
@@ -605,7 +618,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                         if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLTextAreaElement).value,e.key,true,e); return }
                         if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
                       }}
-                      style={{width:'100%',border:'none',outline:'none',background:'transparent',resize:'vertical',minHeight:'22px'}}
                     />
                   </div>
                 )
