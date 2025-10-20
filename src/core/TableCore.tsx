@@ -501,7 +501,14 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         }
 
         return(
-        <div key={row.id} className={rowClasses.join(' ')} style={{gridTemplateColumns:gridCols}} data-r={rVisibleIdx}>
+                  <div
+            key={row.id}
+            className={rowClasses.join(' ')}
+            style={{gridTemplateColumns:gridCols}}
+            data-r={rVisibleIdx}
+            onDragOver={onRowDragOver(rVisibleIdx)}
+            onDrop={onRowDrop(rVisibleIdx)}
+          >
           {/* # kolonne = drag handle for blokk */}
           <div
             className="tc-cell tc-idx tc-row-handle"
