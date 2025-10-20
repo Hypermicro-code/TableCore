@@ -7,8 +7,11 @@ function clamp(n:number,a:number,b:number){return Math.max(a,Math.min(b,n))}
 function isNumericColumn(col: ColumnDef){return col.type==='number'}
 function isDateColumn(col: ColumnDef){return col.type==='date'||col.type==='datetime'}
 function rowHasContent(row:RowData,cols:ColumnDef[]){return cols.some(c=>c.key!=='#' && row.cells[c.key])}
+
+// === Grid template fra kolonner
 function makeGridTemplate(cols:ColumnDef[]){return ['48px',...cols.map(c=>c.width?`${c.width}px`:'minmax(120px,1fr)')].join(' ')}
 
+// === Selection utilities
 const DRAG_THRESHOLD_PX = 4
 const NOSEL: Selection = { r1:-1, c1:-1, r2:-1, c2:-1 }
 const hasSel = (s:Selection)=> s.r1>=0 && s.c1>=0 && s.r2>=0 && s.c2>=0
@@ -33,20 +36,18 @@ const fmtDatetime = (ms:number) => {
   return `${fmtDate(ms)} ${hh}:${mm}`
 }
 
-// ===== ROLLUPS (bottom-up) =====
+// ===== ROLLUPS (bottom-up: parent = aggregat av UMIDDELBARE children) =====
 type Rollups = Map<number, Record<string, CellValue>>
 type HasChildren = Set<number>
 
 function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollups, hasChildren: HasChildren } {
   const childrenMap: Map<number, number[]> = new Map()
-  const parentOf: number[] = Array(rows.length).fill(-1)
 
   const stack: Array<{ idx:number, indent:number }> = []
   for (let i=0;i<rows.length;i++){
     const indent = rows[i].indent
     while (stack.length && stack[stack.length-1].indent >= indent) stack.pop()
     const parentIdx = stack.length ? stack[stack.length-1].idx : -1
-    parentOf[i] = parentIdx
     if (parentIdx >= 0){
       if (!childrenMap.has(parentIdx)) childrenMap.set(parentIdx, [])
       childrenMap.get(parentIdx)!.push(i)
@@ -124,33 +125,110 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
 }
 
 export default function TableCore({columns,rows,onChange,showSummary=false,summaryValues,summaryTitle='Sammendrag'}:TableCoreProps){
+  // === LOKAL kolonnerekkefølge (drag-n-drop) ===
+  const [cols, setCols] = useState<ColumnDef[]>(columns)
+  useEffect(()=>setCols(columns),[columns]) // hvis appen sender nye kolonner
+
+  // === Data
   const [data,setData]=useState<RowData[]>(rows)
   useEffect(()=>setData(rows),[rows])
   const setAndPropagate=useCallback((next:RowData[])=>{setData(next);onChange(next)},[onChange])
 
+  // === UI state
   const [sel,setSel]=useState<Selection>(NOSEL)
   const [editing,setEditing]=useState<EditingState>(null)
-
-  // Kollaps-tilstand (row.id)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
+  // === Refs
   const rootRef=useRef<HTMLDivElement|null>(null)
   const dragState=useRef<{active:boolean,dragging:boolean,r0:number,c0:number,x0:number,y0:number}|null>(null)
   const suppressClickToEditOnce=useRef(false)
   const skipBlurCommit=useRef(false)
   const dataRef=useRef(data);useEffect(()=>{dataRef.current=data},[data])
+  const colsRef=useRef(cols);useEffect(()=>{colsRef.current=cols},[cols])
 
-  // ==== (låst) commit + navi etter commit ====
+  // ==== Commit + navi etter commit (låst) ====
   const commitEdit=(r:number,c:number,val:string)=>{
-    const col=columns[c]
+    const col=colsRef.current[c]
     const parsed:CellValue=isNumericColumn(col)?(val===''?'':Number(val)):val
     const next=dataRef.current.map((row,i)=>i===r?{...row,cells:{...row.cells,[col.key]:parsed}}:row)
     setAndPropagate(next); setEditing(null)
   }
+
+  // ==== Hierarki: blokk-hjelpere (for rad-flytting innen nivå) ====
+  const blockOf = (idx:number) => {
+    const arr = dataRef.current
+    const baseIndent = arr[idx]?.indent ?? 0
+    let end = idx
+    for (let i=idx+1;i<arr.length;i++){
+      if (arr[i].indent<=baseIndent) break
+      end = i
+    }
+    return { start: idx, end, baseIndent }
+  }
+
+  const prevSiblingStart = (idx:number) => {
+    const arr=dataRef.current
+    const { baseIndent } = blockOf(idx)
+    // finn starten på forrige blokk på samme indent og samme parentområde (ikke kryss oppover)
+    for (let i=idx-1;i>=0;i--){
+      if (arr[i].indent<baseIndent) return -1 // nådde parent – stopp
+      if (arr[i].indent===baseIndent){
+        // hopp til starten av denne blokka
+        let s=i
+        while (s-1>=0 && arr[s-1].indent>baseIndent) s--
+        return s
+      }
+    }
+    return -1
+  }
+
+  const nextSiblingStart = (idx:number) => {
+    const arr=dataRef.current
+    const { baseIndent, end } = blockOf(idx)
+    // se fra første etter egen blokk
+    for (let i=end+1;i<arr.length;i++){
+      if (arr[i].indent<baseIndent) return -1 // nådde parent – stopp
+      if (arr[i].indent===baseIndent) return i
+    }
+    return -1
+  }
+
+  // flytt en hel blokk opp/ned innen samme nivå
+  const moveBlock = (idx:number, dir:-1|1) => {
+    const arr = dataRef.current.slice()
+    const { start, end, baseIndent } = blockOf(idx)
+    const block = arr.slice(start, end+1)
+    const targetStart = dir===-1 ? prevSiblingStart(start) : nextSiblingStart(start)
+    if (targetStart<0) return
+
+    // hvis vi skal ned: fjerne blokka først, så finne ny targetStart etter fjerning
+    arr.splice(start, block.length)
+    if (dir===1){
+      // etter fjerning har indekser endret seg – finn ny posisjon å sette inn:
+      // targetStart var i original; når vi fjernet [start..end], hvis start<targetStart
+      // så flyttes targetStart opp med block.length
+      const adjust = (start < targetStart) ? block.length : 0
+      const insertAt = targetStart - adjust
+      arr.splice(insertAt, 0, ...block)
+      setAndPropagate(arr)
+      setSel({ r1: insertAt, r2: insertAt, c1: sel.c1, c2: sel.c1 })
+      return
+    } else {
+      // opp: targetStart er før, fjerning etterpå påvirker ikke posisjonen
+      arr.splice(targetStart, 0, ...block)
+      setAndPropagate(arr)
+      setSel({ r1: targetStart, r2: targetStart, c1: sel.c1, c2: sel.c1 })
+      return
+    }
+  }
+
+  // ==== Neste pos etter commit, basert på synlige rader (låst + utvidet) ====
+  // (vi gjenbruker synlighetslisten lenger nede)
   const nextPosAfter = (r:number,c:number,dir:'down'|'up'|'right'|'left')=>{
     const visible = visibleRowIndices
     const idxInVisible = visible.indexOf(r)
-    const colMax=columns.length-1
+    const colMax=colsRef.current.length-1
     if (idxInVisible === -1){
       const nearest = visible.find(v=>v>=r) ?? visible[visible.length-1]
       return { r: nearest ?? r, c }
@@ -173,7 +251,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return { r: visible[vi], c }
   }
 
-  // ==== Inn/utrykk (begrenset) + flytt rad (låst) ====
+  // ==== Inn/utrykk (begrenset) ====
   const indentRow=(rowIdx:number,delta:number)=>{
     const arr = dataRef.current
     const cur = arr[rowIdx]; if(!cur) return
@@ -184,24 +262,24 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     if (nextIndent === cur.indent) return
     setAndPropagate(arr.map((r,i)=> i===rowIdx ? { ...r, indent: nextIndent } : r))
   }
-  const moveRow=(rowIdx:number,dir:-1|1)=>{
-    const arr=dataRef.current.slice(), tgt=rowIdx+dir
-    if(tgt<0||tgt>=arr.length)return
-    const [it]=arr.splice(rowIdx,1); arr.splice(tgt,0,it)
-    setAndPropagate(arr)
-    setSel(s=>hasSel(s)?{r1:tgt,r2:tgt,c1:s.c1,c2:s.c1}:{r1:tgt,r2:tgt,c1:0,c2:0})
-  }
 
-  // ==== Global key handler (låst) ====
+  // ==== Global key handler (låst + blokkflytt) ====
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
-      const colMax=columns.length-1
-      if(e.altKey&&!e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
-        if(!hasSel(sel)) return; e.preventDefault(); indentRow(sel.r1,e.key==='ArrowRight'?1:-1); return
-      }
+      const colMax=colsRef.current.length-1
       if(e.altKey&&e.shiftKey&&(e.key==='ArrowUp'||e.key==='ArrowDown')){
-        if(!hasSel(sel)) return; e.preventDefault(); moveRow(sel.r1,e.key==='ArrowUp'?-1:1); return
+        if(!hasSel(sel)) return
+        e.preventDefault()
+        moveBlock(sel.r1, e.key==='ArrowUp' ? -1 : 1)
+        return
       }
+      if(e.altKey&&!e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
+        if(!hasSel(sel)) return
+        e.preventDefault()
+        indentRow(sel.r1,e.key==='ArrowRight'?1:-1)
+        return
+      }
+
       if(!editing){
         if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Enter'].includes(e.key)){
           if(!hasSel(sel)) return
@@ -227,9 +305,9 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     }
     document.addEventListener('keydown',onKey,true)
     return()=>document.removeEventListener('keydown',onKey,true)
-  },[columns.length, editing, sel])
+  },[editing, sel])
 
-  // ==== Mouse selection (låst) ====
+  // ==== Mouse cell selection (låst) ====
   const setGlobalNoSelect=(on:boolean)=>{ const el=rootRef.current; if(!el)return; el.classList.toggle('tc-noselect',on) }
   const onCellMouseDown=(r:number,c:number)=>(ev:React.MouseEvent)=>{ setSel({r1:r,r2:r,c1:c,c2:c}); dragState.current={active:true,dragging:false,r0:r,c0:c,x0:ev.clientX,y0:ev.clientY} }
   const onMouseMove=(ev:React.MouseEvent)=>{
@@ -245,7 +323,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const onCellDoubleClick=(r:number,c:number)=>(ev:React.MouseEvent)=>{ ev.preventDefault(); suppressClickToEditOnce.current=true; setEditing({ r, c, mode:'selectAll' }) }
 
   // ==== ROLLUPS + hvilke rader har barn ====
-  const { rollups, hasChildren } = useMemo(()=> computeRollups(data, columns), [data, columns])
+  const { rollups, hasChildren } = useMemo(()=> computeRollups(data, cols), [data, cols])
 
   // ==== Synlige rader (skjul descendants av kollapsede foreldre) ====
   const visibleRowIndices = useMemo(()=>{
@@ -262,12 +340,12 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return result
   }, [data, hasChildren, collapsed])
 
+  // ==== Aggregert celle-sjekk + visningsverdi ====
   const isAggregatedCell = (rowIndex:number, col: ColumnDef) => {
     if (!hasChildren.has(rowIndex)) return false
     if (col.isTitle) return false
     return isNumericColumn(col) || isDateColumn(col)
   }
-
   const displayValue = (rowIndex:number, col: ColumnDef, stored: CellValue): CellValue => {
     if (!isAggregatedCell(rowIndex, col)) return stored
     const rec = rollups.get(rowIndex); if (!rec) return stored
@@ -295,7 +373,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
       if (r<sel.r1 || r>sel.r2) continue
       const row=data[r]; const line:(string|number|'')[]=[]
       for(let c=c1;c<=c2;c++){
-        const col=columns[c]; const stored = row.cells[col.key] ?? ''
+        const col=cols[c]; const stored = row.cells[col.key] ?? ''
         line.push(displayValue(r,col,stored) as any)
       }
       m.push(line)
@@ -313,8 +391,8 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
       const visRow = visibleRowIndices[startIdxInVisible + i]
       if (visRow === undefined) break
       for(let j=0;j<m[i].length;j++){
-        const cc=sel.c1+j; if(cc>=columns.length)break
-        const col=columns[cc]
+        const cc=sel.c1+j; if(cc>=cols.length)break
+        const col=cols[cc]
         if (isAggregatedCell(visRow, col)) continue
         const raw=m[i][j]
         next[visRow].cells[col.key] = isNumericColumn(col) ? (raw===''?'':Number(raw)) : raw
@@ -323,43 +401,39 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(next)
   }
 
-  // ==== Sammendrag øverst (låst) ====
+  // ==== Sammendrag øverst (uendret) ====
   const sums=useMemo(()=>{
     if(!showSummary||summaryValues)return null
     const s:Record<string,CellValue>={}
-    columns.forEach(c=>{if(isNumericColumn(c)&&c.summarizable)s[c.key]=0})
-    data.forEach(r=>columns.forEach(c=>{
+    cols.forEach(c=>{if(isNumericColumn(c)&&c.summarizable)s[c.key]=0})
+    data.forEach(r=>cols.forEach(c=>{
       if(isNumericColumn(c)&&c.summarizable){
         const v=r.cells[c.key]; if(typeof v==='number') s[c.key]=(s[c.key] as number)+v
       }}))
-    const t=columns.findIndex(c=>c.isTitle); if(t>=0) s[columns[t].key]=summaryTitle
+    const t=cols.findIndex(c=>c.isTitle); if(t>=0) s[cols[t].key]=summaryTitle
     return s
-  },[showSummary,summaryValues,columns,data,summaryTitle])
+  },[showSummary,summaryValues,cols,data,summaryTitle])
 
-  const gridCols=useMemo(()=>makeGridTemplate(columns),[columns])
+  // === GRID COLUMNS (bruk lokal kolonnerekkefølge)
+  const gridCols=useMemo(()=>makeGridTemplate(cols),[cols])
 
-  // === Finn alle descendant-parents for en rad (brukes ved Alt+klikk)
+  // === Collapse toggle (inkl. Alt-kaskade som før)
   const getDescendantParentIds = useCallback((startIdx:number): string[]=>{
     const ids:string[] = []
     const startIndent = data[startIdx]?.indent ?? 0
     for (let i=startIdx+1;i<data.length;i++){
       const r = data[i]
       if (r.indent <= startIndent) break
-      // har denne rad i dag barn? (i nåværende datasett)
-      // vi bruker hasChildren fra rollups-beregningen
       if (hasChildren.has(i)) ids.push(r.id)
     }
     return ids
   },[data, hasChildren])
 
-  // === Toggle collapse (med Alt for å kaskadere)
   const toggleCollapse = (rowId:string, cascadeIds: string[] = []) => {
     setCollapsed(prev=>{
       const n = new Set(prev)
       const willCollapse = !n.has(rowId)
-      // toggl parent
       if (willCollapse) n.add(rowId); else n.delete(rowId)
-      // hvis kaskade: sett alle barn-parents til samme endelige tilstand
       if (cascadeIds.length){
         for (const cid of cascadeIds){
           if (willCollapse) n.add(cid); else n.delete(cid)
@@ -369,133 +443,284 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     })
   }
 
+  // ======== KOLONNE-DRAG (header) ========
+  const onHeaderDragStart = (idx:number)=>(e:React.DragEvent)=>{
+    e.dataTransfer.setData('text/x-col-index', String(idx))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const onHeaderDragOver = (idx:number)=>(e:React.DragEvent)=>{
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+  const onHeaderDrop = (idx:number)=>(e:React.DragEvent)=>{
+    e.preventDefault()
+    const fromStr = e.dataTransfer.getData('text/x-col-index')
+    if (fromStr==='') return
+    const from = Number(fromStr)
+    if (Number.isNaN(from) || from===idx) return
+    const next = colsRef.current.slice()
+    const [moved] = next.splice(from,1)
+    next.splice(idx,0,moved)
+    setCols(next)
+    // juster selection kolonne hvis nødvendig
+    setSel(s=>{
+      if(!hasSel(s)) return s
+      const mapIndex = (old:number)=>{
+        // beregn ny posisjon til en kolonne etter flytting
+        let arr = colsRef.current.slice()
+        const [mv] = arr.splice(from,1)
+        arr.splice(idx,0,mv)
+        return arr.findIndex(c=>c.key===colsRef.current[old].key)
+      }
+      return { r1:s.r1,r2:s.r2,c1:mapIndex(s.c1),c2:mapIndex(s.c2) }
+    })
+  }
+
+  // ======== RAD-DRAG (i #-kolonnen, blokkvis og nivåbegrenset) ========
+  const onRowDragStart = (rowIdx:number)=>(e:React.DragEvent)=>{
+    e.dataTransfer.setData('text/x-row-index', String(rowIdx))
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const onRowDragOver = (rowIdx:number)=>(e:React.DragEvent)=>{
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+  const onRowDrop = (rowIdx:number)=>(e:React.DragEvent)=>{
+    e.preventDefault()
+    const fromStr = e.dataTransfer.getData('text/x-row-index')
+    if (fromStr==='') return
+    const from = Number(fromStr)
+    if (Number.isNaN(from) || from===rowIdx) return
+
+    // flytt blokk fra "from" til foran blokken som starter ved "rowIdx"
+    const arr = dataRef.current.slice()
+    const { start: sA, end: eA, baseIndent } = blockOf(from)
+
+    // Mottaker må være i samme nivå og innen samme parentområde
+    // Finn starten på mottakerblokka
+    const { start: sB } = blockOf(rowIdx)
+
+    // Sjekk at rowIdx ligger i samme parentområde og indent
+    const sameLevel = (arr[sB]?.indent === baseIndent)
+    if (!sameLevel){
+      // ugyldig mål – ignorer
+      return
+    }
+    // sjekk at sB ikke krysser ut av parent (dvs. mellom sA-sin parentgrense)
+    // Dette er ivaretatt ved at vi tillater flytting bare innen samme indent og lar naturlige grenser stoppe.
+
+    const blockA = arr.slice(sA, eA+1)
+    // fjern A
+    arr.splice(sA, blockA.length)
+    // beregn ny sB etter fjerning:
+    const insertAt = sB > sA ? sB - blockA.length : sB
+    arr.splice(insertAt, 0, ...blockA)
+    setAndPropagate(arr)
+    setSel({ r1: insertAt, r2: insertAt, c1: sel.c1, c2: sel.c1 })
+  }
+
   return (
   <div ref={rootRef} className="tc-root" onCopy={onCopy} onPaste={onPaste}>
     <div className="tc-wrap" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
-      {/* header (låst) */}
+      {/* header */}
       <div className="tc-header" style={{gridTemplateColumns:gridCols}}>
         <div className="tc-cell tc-idx">#</div>
-        {columns.map(col=><div key={col.key} className="tc-cell">{col.title}</div>)}
+        {cols.map((col, idx)=>
+          <div
+            key={col.key}
+            className="tc-cell tc-header-cell"
+            draggable
+            onDragStart={onHeaderDragStart(idx)}
+            onDragOver={onHeaderDragOver(idx)}
+            onDrop={onHeaderDrop(idx)}
+            title="Dra for å flytte kolonne"
+          >
+            {col.title}
+          </div>
+        )}
       </div>
 
-      {/* summary (låst) */}
-      {showSummary&&sums&&(
-        <div className="tc-row tc-summary" style={{gridTemplateColumns:gridCols}}>
-          <div className="tc-cell tc-idx"></div>
-          {columns.map(col=><div key={col.key} className="tc-cell">{String(sums[col.key]??'')}</div>)}
-        </div>
-      )}
+      {/* summary (uendret) */}
+      {showSummary&&(()=>{
+        if(summaryValues){
+          return (
+            <div className="tc-row tc-summary" style={{gridTemplateColumns:gridCols}}>
+              <div className="tc-cell tc-idx"></div>
+              {cols.map(col=><div key={col.key} className="tc-cell">{String(summaryValues[col.key]??'')}</div>)}
+            </div>
+          )
+        }
+        const s:Record<string,CellValue>={}
+        cols.forEach(c=>{if(isNumericColumn(c)&&c.summarizable)s[c.key]=0})
+        data.forEach(r=>cols.forEach(c=>{
+          if(isNumericColumn(c)&&c.summarizable){
+            const v=r.cells[c.key]; if(typeof v==='number')s[c.key]=(s[c.key] as number)+v
+          }}))
+        const t=cols.findIndex(c=>c.isTitle);if(t>=0)s[cols[t].key]=summaryTitle
+        return (
+          <div className="tc-row tc-summary" style={{gridTemplateColumns:gridCols}}>
+            <div className="tc-cell tc-idx"></div>
+            {cols.map(col=><div key={col.key} className="tc-cell">{String(s[col.key]??'')}</div>)}
+          </div>
+        )
+      })()}
 
-      {/* rows – kun synlige */}
-      {visibleRowIndices.map((rVisibleIdx, visiblePos)=>{
-        const row = data[rVisibleIdx]
-        const showIndex=rowHasContent(row,columns)
-        const isParent = hasChildren.has(rVisibleIdx)
-        const isCollapsed = isParent && collapsed.has(row.id)
+      {/* rows – vis kun synlige */}
+      {(()=> {
+        // beregn synlige rader igjen (lokal scope)
+        const visibleRowIndices = (() => {
+          const result:number[] = []
+          const st: Array<{ id:string, indent:number, collapsed:boolean }> = []
+          for (let i=0;i<data.length;i++){
+            const row = data[i]
+            while (st.length && st[st.length-1].indent >= row.indent) st.pop()
+            const hidden = st.some(a=>a.collapsed)
+            if (!hidden) result.push(i)
+            const isParent = (()=>{ // hasChildren for aktuell i:
+              // rask test: finnes noen etterfølgende rad med indent > row.indent før indent <= row.indent?
+              // men vi har allerede computeRollups -> hasChildren:
+              return computeRollups(data, cols).hasChildren.has(i)
+            })()
+            st.push({ id: row.id, indent: row.indent, collapsed: isParent ? collapsed.has(row.id) : false })
+          }
+          return result
+        })()
 
-        const rowClasses = ['tc-row']
-        if (isParent) rowClasses.push('tc-parent')
-        if (row.indent>0) rowClasses.push('tc-child')
+        return visibleRowIndices.map((rVisibleIdx, visiblePos)=>{
+          const row = data[rVisibleIdx]
+          const showIndex=rowHasContent(row,cols)
+          const isParent = computeRollups(data, cols).hasChildren.has(rVisibleIdx)
+          const isCollapsed = isParent && collapsed.has(row.id)
 
-        return(
-        <div key={row.id} className={rowClasses.join(' ')} style={{gridTemplateColumns:gridCols}}>
-          <div className="tc-cell tc-idx">{showIndex ? (visiblePos+1) : ''}</div>
-          {columns.map((col,cIdx)=>{
-            const inSel = hasSel(sel) && rVisibleIdx>=sel.r1&&rVisibleIdx<=sel.r2&&cIdx>=sel.c1&&cIdx<=sel.c2
-            const top=inSel&&rVisibleIdx===sel.r1,bottom=inSel&&rVisibleIdx===sel.r2,left=inSel&&cIdx===sel.c1,right=inSel&&cIdx===sel.c2
-            const classes=['tc-cell']; if(inSel)classes.push('sel'); if(top)classes.push('sel-top'); if(bottom)classes.push('sel-bottom'); if(left)classes.push('sel-left'); if(right)classes.push('sel-right')
+          const rowClasses = ['tc-row']
+          if (isParent) rowClasses.push('tc-parent')
+          if (row.indent>0) rowClasses.push('tc-child')
 
-            const storedVal = row.cells[col.key] ?? ''
-            const shownVal = displayValue(rVisibleIdx, col, storedVal)
-            const canEditThisCell = !(isAggregatedCell(rVisibleIdx, col)) // parent-aggregat = lesevisning (tittel kan editeres)
-            const editingHere = !!editing && editing.r===rVisibleIdx && editing.c===cIdx && canEditThisCell
-            const titleAttr = String(shownVal)
+          return(
+          <div key={row.id} className={rowClasses.join(' ')} style={{gridTemplateColumns:gridCols}}>
+            {/* # kolonne: drag-handle for rad-blokk */}
+            <div
+              className="tc-cell tc-idx tc-row-handle"
+              draggable
+              onDragStart={onRowDragStart(rVisibleIdx)}
+              onDragOver={onRowDragOver(rVisibleIdx)}
+              onDrop={onRowDrop(rVisibleIdx)}
+              title="Dra for å flytte rad (innen samme innrykk)"
+            >
+              {showIndex? visiblePos+1 : ''}
+            </div>
 
-            const maybeDisclosure = (col.isTitle && isParent) ? (
-              <button
-                className="tc-disc"
-                aria-label={isCollapsed ? 'Utvid' : 'Skjul'}
-                onMouseDown={(e)=>{e.stopPropagation()}}
-                onClick={(e)=>{
-                  e.stopPropagation(); e.preventDefault()
-                  const isAlt = (e as React.MouseEvent).altKey
-                  if (isAlt){
-                    const cascade = getDescendantParentIds(rVisibleIdx)
-                    toggleCollapse(row.id, cascade)
-                  } else {
-                    toggleCollapse(row.id)
-                  }
-                }}
-              >
-                {isCollapsed ? '▶' : '▼'}
-              </button>
-            ) : null
+            {cols.map((col,cIdx)=>{
+              const inSel = hasSel(sel) && rVisibleIdx>=sel.r1&&rVisibleIdx<=sel.r2&&cIdx>=sel.c1&&cIdx<=sel.c2
+              const top=inSel&&rVisibleIdx===sel.r1,bottom=inSel&&rVisibleIdx===sel.r2,left=inSel&&cIdx===sel.c1,right=inSel&&cIdx===sel.c2
+              const classes=['tc-cell']; if(inSel)classes.push('sel'); if(top)classes.push('sel-top'); if(bottom)classes.push('sel-bottom'); if(left)classes.push('sel-left'); if(right)classes.push('sel-right')
 
-            if(editingHere){
-              const handleCommitMove = (value:string, key:string, _isTextarea:boolean, e:React.KeyboardEvent)=>{
-                const dir = key==='Enter' ? (e.shiftKey ? 'up' : 'down') : key==='Tab' ? (e.shiftKey ? 'left' : 'right') : null
-                if(!dir) return
-                e.preventDefault(); skipBlurCommit.current = true
-                commitEdit(rVisibleIdx,cIdx,value)
-                const next = nextPosAfter(rVisibleIdx,cIdx,dir); setSel({r1:next.r,r2:next.r,c1:next.c,c2:next.c})
+              const storedVal = row.cells[col.key] ?? ''
+              const shownVal = displayValue(rVisibleIdx, col, storedVal)
+              const canEditThisCell = !(isAggregatedCell(rVisibleIdx, col))
+              const editingHere = !!editing && editing.r===rVisibleIdx && editing.c===cIdx && canEditThisCell
+              const titleAttr = String(shownVal)
+
+              const maybeDisclosure = (col.isTitle && isParent) ? (
+                <button
+                  className="tc-disc"
+                  aria-label={isCollapsed ? 'Utvid' : 'Skjul'}
+                  onMouseDown={(e)=>{e.stopPropagation()}}
+                  onClick={(e)=>{
+                    e.stopPropagation(); e.preventDefault()
+                    const isAlt = (e as React.MouseEvent).altKey
+                    if (isAlt){
+                      // kaskader samme state nedover
+                      const ids:string[] = []
+                      const startIndent = row.indent
+                      for (let i=rVisibleIdx+1;i<data.length;i++){
+                        const rr = data[i]
+                        if (rr.indent <= startIndent) break
+                        // parent her?
+                        if (computeRollups(data, cols).hasChildren.has(i)) ids.push(rr.id)
+                      }
+                      const willCollapse = !collapsed.has(row.id)
+                      setCollapsed(prev=>{
+                        const n = new Set(prev)
+                        if (willCollapse){ n.add(row.id); ids.forEach(id=>n.add(id)) }
+                        else { n.delete(row.id); ids.forEach(id=>n.delete(id)) }
+                        return n
+                      })
+                    } else {
+                      toggleCollapse(row.id)
+                    }
+                  }}
+                >
+                  {isCollapsed ? '▶' : '▼'}
+                </button>
+              ) : null
+
+              if(editingHere){
+                const handleCommitMove = (value:string, key:string, _isTextarea:boolean, e:React.KeyboardEvent)=>{
+                  const dir = key==='Enter' ? (e.shiftKey ? 'up' : 'down') : key==='Tab' ? (e.shiftKey ? 'left' : 'right') : null
+                  if(!dir) return
+                  e.preventDefault(); skipBlurCommit.current = true
+                  commitEdit(rVisibleIdx,cIdx,value)
+                  const next = nextPosAfter(rVisibleIdx,cIdx,dir); setSel({r1:next.r,r2:next.r,c1:next.c,c2:next.c})
+                }
+
+                if(isNumericColumn(col)){
+                  const seed = editing!.seed && /[0-9\-\.,]/.test(editing!.seed) ? editing!.seed : ''
+                  const def = editing!.mode==='replace' ? seed : String(storedVal)
+                  return(
+                    <div key={col.key} className={classes.join(' ')} data-cell data-r={rVisibleIdx} data-c={cIdx}>
+                      <input
+                        autoFocus defaultValue={def}
+                        ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
+                        onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
+                        onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLInputElement).value,e.key,false,e); return } if(e.key==='Escape'){ e.preventDefault(); setEditing(null) } }}
+                        type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}
+                      />
+                    </div>
+                  )
+                } else {
+                  const def = editing!.mode==='replace' ? (editing!.seed ?? '') : String(storedVal)
+                  return(
+                    <div key={col.key} className={classes.join(' ')} data-cell data-r={rVisibleIdx} data-c={cIdx}>
+                      <textarea
+                        autoFocus defaultValue={def}
+                        ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
+                        onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
+                        onKeyDown={e=>{
+                          if(e.key==='Enter' && e.altKey){
+                            e.preventDefault()
+                            const ta=e.currentTarget; const pos=ta.selectionStart??ta.value.length
+                            ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos); ta.setSelectionRange(pos+1,pos+1); return
+                          }
+                          if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLTextAreaElement).value,e.key,true,e); return }
+                          if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
+                        }}
+                        style={{width:'100%',border:'none',outline:'none',background:'transparent',resize:'vertical',minHeight:'22px'}}
+                      />
+                    </div>
+                  )
+                }
               }
 
-              if(isNumericColumn(col)){
-                const seed = editing!.seed && /[0-9\-\.,]/.test(editing!.seed) ? editing!.seed : ''
-                const def = editing!.mode==='replace' ? seed : String(storedVal)
-                return(
-                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rVisibleIdx} data-c={cIdx}>
-                    <input
-                      autoFocus defaultValue={def}
-                      ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
-                      onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
-                      onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLInputElement).value,e.key,false,e); return } if(e.key==='Escape'){ e.preventDefault(); setEditing(null) } }}
-                      type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}
-                    />
-                  </div>
-                )
-              } else {
-                const def = editing!.mode==='replace' ? (editing!.seed ?? '') : String(storedVal)
-                return(
-                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rVisibleIdx} data-c={cIdx}>
-                    <textarea
-                      autoFocus defaultValue={def}
-                      ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
-                      onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
-                      onKeyDown={e=>{
-                        if(e.key==='Enter' && e.altKey){
-                          e.preventDefault()
-                          const ta=e.currentTarget; const pos=ta.selectionStart??ta.value.length
-                          ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos); ta.setSelectionRange(pos+1,pos+1); return
-                        }
-                        if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLTextAreaElement).value,e.key,true,e); return }
-                        if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
-                      }}
-                      style={{width:'100%',border:'none',outline:'none',background:'transparent',resize:'vertical',minHeight:'22px'}}
-                    />
-                  </div>
-                )
-              }
-            }
-
-            return(
-            <div key={col.key}
-              className={classes.join(' ')}
-              data-cell data-r={rVisibleIdx} data-c={cIdx}
-              onMouseDown={onCellMouseDown(rVisibleIdx,cIdx)}
-              onDoubleClick={onCellDoubleClick(rVisibleIdx,cIdx)}
-              title={titleAttr}>
-              {col.isTitle?
-                <span className="tc-title">
-                  <span className="tc-indent" style={{['--lvl' as any]:row.indent}}/>
-                  {maybeDisclosure}
-                  <span>{String(shownVal)}</span>
-                </span>
-              : <span>{String(shownVal)}</span>}
-            </div>)
-          })}
-        </div>)
-      })}
+              return(
+              <div key={col.key}
+                className={classes.join(' ')}
+                data-cell data-r={rVisibleIdx} data-c={cIdx}
+                onMouseDown={onCellMouseDown(rVisibleIdx,cIdx)}
+                onDoubleClick={onCellDoubleClick(rVisibleIdx,cIdx)}
+                title={titleAttr}>
+                {col.isTitle?
+                  <span className="tc-title">
+                    <span className="tc-indent" style={{['--lvl' as any]:row.indent}}/>
+                    {maybeDisclosure}
+                    <span>{String(shownVal)}</span>
+                  </span>
+                : <span>{String(shownVal)}</span>}
+              </div>)
+            })}
+          </div>)
+        })
+      })()}
     </div>
   </div>)
 }
