@@ -5,8 +5,8 @@ import "./styles/tablecore.css"
 
 const columns: ColumnDef[] = [
   { key: "tittel", title: "Tittel", isTitle: true },
-  { key: "fra", title: "Fra dato", type: "date" },
-  { key: "til", title: "Til dato", type: "date" },
+  { key: "fra", title: "Fra dato", type: "date", dateRole: "start" }, // ⬅ start
+  { key: "til", title: "Til dato", type: "date", dateRole: "end" },   // ⬅ end
   { key: "timer", title: "Timer", type: "number", summarizable: true },
 ]
 
@@ -19,19 +19,14 @@ const initialRows: RowData[] = [
 
 export default function App() {
   const [rows, setRows] = useState(initialRows)
-
   return (
     <div style={{ padding: 24 }}>
       <h2>Tabell med datoaggregat</h2>
-      <TableCore
-        columns={columns}
-        rows={rows}
-        onChange={setRows}
-        showSummary
-      />
+      <TableCore columns={columns} rows={rows} onChange={setRows} showSummary />
       <p style={{ marginTop: 16, fontStyle: "italic" }}>
-        Tips: Rekk ned "Planlegging" og "Utførelse" (Alt + →).<br />
-        Parent-raden "Prosjektstart" skal da vise <b>2025-03-01 → 2025-03-04</b> og sum = 18 timer.
+        Tips: Rekk inn radene under “Prosjektstart” (Alt+→).<br />
+        “Prosjektstart” blir <b>PARENT</b> (fet + uppercase). Barn er <i>kursiv</i>. <br />
+        “Fra dato” viser tidligste dato, “Til dato” viser seneste.
       </p>
     </div>
   )
