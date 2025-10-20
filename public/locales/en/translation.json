@@ -1,0 +1,29 @@
+{
+  "file.new": "New",
+  "file.open": "Open",
+  "file.import": "Import",
+  "file.export": "Export",
+  "file.save": "Save",
+  "file.saveas": "Save as",
+  "status.saved": "Saved",
+  "status.autosave": "Autosave",
+  "status.offline": "Offline",
+
+  "edit.undo": "Undo",
+  "edit.redo": "Redo",
+
+  "view.compact": "Compact",
+  "view.comfortable": "Comfortable",
+  "view.zoomout": "Zoom −",
+  "view.zoomin": "Zoom +",
+  "view.zoomreset": "100%",
+
+  "hierarchy.indent": "Indent",
+  "hierarchy.outdent": "Outdent",
+
+  "search.placeholder": "Search…",
+  "help.shortcuts": "Shortcuts",
+  "help.whatsnew": "What’s new",
+  "user.profile": "Profile",
+  "sync.status": "Sync"
+}
