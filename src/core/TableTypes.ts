@@ -1,17 +1,22 @@
 // ==== [BLOCK: Types] BEGIN ====
 export type CellValue = string | number | ''
 
-export type ColumnType = 'text' | 'number' | 'date' | 'datetime' // ← la til dato-typer
+export type ColumnType = 'text' | 'number' | 'date' | 'datetime'
 
+/**
+ * For dato/datetime-kolonner kan du sette dateRole:
+ *  - 'start'  = viser min (tidligste) i parent-aggregat
+ *  - 'end'    = viser max (seneste) i parent-aggregat
+ *  - undefined (eller annet) = auto (viser "min → max")
+ */
 export type ColumnDef = {
   key: string
   title: string
   width?: number
   type?: ColumnType
-  /** true = dette er tittelkolonnen som får hierarki/innrykk */
   isTitle?: boolean
-  /** true = kan summeres i fallback-sammendrag */
   summarizable?: boolean
+  dateRole?: 'start' | 'end'
 }
 
 export type RowData = {
@@ -31,8 +36,6 @@ export type TableCoreProps = {
   columns: ColumnDef[]
   rows: RowData[]
   onChange: (next: RowData[]) => void
-
-  /** Sammendragslinje mellom header og første rad. */
   showSummary?: boolean
   summaryValues?: Record<string, CellValue>
   summaryTitle?: string
