@@ -5,6 +5,7 @@ import '../styles/tablecore.css'
 
 function clamp(n:number,a:number,b:number){return Math.max(a,Math.min(b,n))}
 function isNumericColumn(col: ColumnDef){return col.type==='number'}
+function isDateColumn(col: ColumnDef){return col.type==='date'||col.type==='datetime'}
 function rowHasContent(row:RowData,cols:ColumnDef[]){return cols.some(c=>c.key!=='#' && row.cells[c.key])}
 function makeGridTemplate(cols:ColumnDef[]){return ['48px',...cols.map(c=>c.width?`${c.width}px`:'minmax(120px,1fr)')].join(' ')}
 
@@ -15,23 +16,106 @@ const hasSel = (s:Selection)=> s.r1>=0 && s.c1>=0 && s.r2>=0 && s.c2>=0
 type EditMode = 'replace'|'caretEnd'|'selectAll'
 type EditingState = { r:number, c:number, mode:EditMode, seed?: string } | null
 
+// ===== HJELPERE for dato ====
+const toDate = (v:CellValue): Date | null => {
+  if (typeof v === 'number') return new Date(v)
+  if (typeof v === 'string' && v.trim()){
+    const d = new Date(v)
+    return isNaN(+d) ? null : d
+  }
+  return null
+}
+const fmtDate = (d:Date) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth()+1).padStart(2,'0')
+  const day = String(d.getDate()).padStart(2,'0')
+  return `${y}-${m}-${day}`
+}
+const fmtDatetime = (d:Date) => {
+  const hh = String(d.getHours()).padStart(2,'0')
+  const mm = String(d.getMinutes()).padStart(2,'0')
+  return `${fmtDate(d)} ${hh}:${mm}`
+}
+
+// ===== ROLLUPS (parent-aggregat) =====
+// Beregner for hver parent-rad (har under-rader) en verdi per kolonne:
+// number → sum av hele under-treet, date/datetime → min → max
+type Rollups = Map<number, Record<string, CellValue>>
+type HasChildren = Set<number>
+
+function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollups, hasChildren: HasChildren } {
+  const rollups: Rollups = new Map()
+  const hasChildren: HasChildren = new Set()
+
+  // Stack med {idx, indent}. Hver gang vi ser en rad med indent k,
+  // er alle på stacken med indent < k foreldre (for subtree).
+  const stack: Array<{ idx:number, indent:number }> = []
+
+  const ensureRec = (idx:number) => {
+    if (!rollups.has(idx)) rollups.set(idx, {})
+    return rollups.get(idx)!
+  }
+
+  for (let i=0;i<rows.length;i++){
+    const curIndent = rows[i].indent
+
+    // Pop inntil topp har mindre indent enn nå
+    while (stack.length && stack[stack.length-1].indent >= curIndent){
+      stack.pop()
+    }
+
+    // Nå er alt i stacken foreldre til i (for hele treet). Akkumuler verdier oppover.
+    for (const parent of stack){
+      hasChildren.add(parent.idx)
+      const rec = ensureRec(parent.idx)
+      for (const col of columns){
+        if (col.isTitle) continue
+        const v = rows[i].cells[col.key]
+        if (isNumericColumn(col)){
+          const cur = (typeof rec[col.key] === 'number') ? (rec[col.key] as number) : 0
+          rec[col.key] = cur + (typeof v === 'number' ? v : 0)
+        } else if (isDateColumn(col)){
+          const d = toDate(v)
+          if (!d) continue
+          const keyMin = `${col.key}__min`
+          const keyMax = `${col.key}__max`
+          const curMin = rec[keyMin] as Date | undefined
+          const curMax = rec[keyMax] as Date | undefined
+          rec[keyMin] = curMin ? (d < curMin ? d : curMin) : d
+          rec[keyMax] = curMax ? (d > curMax ? d : curMax) : d
+          // Synlig verdi lagres i col.key
+          const minD = rec[keyMin] as Date
+          const maxD = rec[keyMax] as Date
+          rec[col.key] = (col.type==='date')
+            ? (minD && maxD ? (fmtDate(minD) + (minD.getTime()!==maxD.getTime()? ` → ${fmtDate(maxD)}` : '')) : '')
+            : (minD && maxD ? (fmtDatetime(minD) + (minD.getTime()!==maxD.getTime()? ` → ${fmtDatetime(maxD)}` : '')) : '')
+        }
+      }
+    }
+
+    // Legg nåværende rad på stack (kan bli parent for senere rader)
+    stack.push({ idx:i, indent:curIndent })
+  }
+
+  return { rollups, hasChildren }
+}
+
 export default function TableCore({columns,rows,onChange,showSummary=false,summaryValues,summaryTitle='Sammendrag'}:TableCoreProps){
   const [data,setData]=useState<RowData[]>(rows)
   useEffect(()=>setData(rows),[rows])
   const setAndPropagate=useCallback((next:RowData[])=>{setData(next);onChange(next)},[onChange])
 
-  // START: ingen valgt celle
   const [sel,setSel]=useState<Selection>(NOSEL)
   const [editing,setEditing]=useState<EditingState>(null)
 
   const rootRef=useRef<HTMLDivElement|null>(null)
   const dragState=useRef<{active:boolean,dragging:boolean,r0:number,c0:number,x0:number,y0:number}|null>(null)
   const suppressClickToEditOnce=useRef(false)
-  const skipBlurCommit=useRef(false) // hindrer dobbelt-commit når vi commit’er via Enter/Tab
+  const skipBlurCommit=useRef(false)
 
   const dataRef=useRef(data);useEffect(()=>{dataRef.current=data},[data])
 
-  // === Redigering / commit ===
+  // === Redigering / commit (uendret) ===
   const commitEdit=(r:number,c:number,val:string)=>{
     const col=columns[c]
     const parsed:CellValue=isNumericColumn(col)?(val===''?'':Number(val)):val
@@ -40,7 +124,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setEditing(null)
   }
 
-  // hjelper: beregn neste celle ved navigasjon
+  // Hjelper for neste pos etter commit (uendret)
   const nextPosAfter = (r:number,c:number,dir:'down'|'up'|'right'|'left')=>{
     const rowMax=dataRef.current.length-1
     const colMax=columns.length-1
@@ -58,10 +142,20 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return {r:rr,c:cc}
   }
 
-  // === Inn/utrykk + flytt rad (vår spesial) ===
+  // === Inn/utrykk + flytt rad (BEGRENSET INNRYKK HER) ===
   const indentRow=(rowIdx:number,delta:number)=>{
-    setAndPropagate(dataRef.current.map((r,i)=>i===rowIdx?{...r,indent:Math.max(0,r.indent+delta)}:r))
+    const arr = dataRef.current
+    const cur = arr[rowIdx]
+    if(!cur) return
+    const prevIndent = rowIdx>0 ? arr[rowIdx-1].indent : 0
+    // Ny regel: kan ikke bli dypere enn (forrige rad + 1)
+    const maxIndent = prevIndent + 1
+    const desired = cur.indent + delta
+    const nextIndent = clamp(desired, 0, maxIndent)
+    if (nextIndent === cur.indent) return
+    setAndPropagate(arr.map((r,i)=> i===rowIdx ? { ...r, indent: nextIndent } : r))
   }
+
   const moveRow=(rowIdx:number,dir:-1|1)=>{
     const arr=dataRef.current.slice()
     const tgt=rowIdx+dir
@@ -72,13 +166,12 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setSel(s=>hasSel(s)?{r1:tgt,r2:tgt,c1:s.c1,c2:s.c1}:{r1:tgt,r2:tgt,c1:0,c2:0})
   }
 
-  // === Global key handler ===
+  // === Global key handler (uendret fra låst versjon) ===
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       const rowMax=dataRef.current.length-1
       const colMax=columns.length-1
 
-      // ---- Spesial (vår)
       if(e.altKey&&!e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
         if(!hasSel(sel)) return
         e.preventDefault()
@@ -90,7 +183,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         moveRow(sel.r1,e.key==='ArrowUp'?-1:1);return
       }
 
-      // ---- Navigasjon når vi ikke redigerer
       if(!editing){
         if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab','Enter'].includes(e.key)){
           if(!hasSel(sel)) return
@@ -98,8 +190,8 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
           let r=sel.r1,c=sel.c1
           if(e.key==='ArrowUp')r=clamp(r-1,0,rowMax)
           if(e.key==='ArrowDown')r=clamp(r+1,0,rowMax)
-          if(e.key==='ArrowLeft')c=clamp(c-1,0,columns.length-1)
-          if(e.key==='ArrowRight')c=clamp(c+1,0,columns.length-1)
+          if(e.key==='ArrowLeft')c=clamp(c-1,0,colMax)
+          if(e.key==='ArrowRight')c=clamp(c+1,0,colMax)
           if(e.key==='Tab'){
             if(e.shiftKey){ c--; if(c<0){ c=colMax; r=clamp(r-1,0,rowMax) } }
             else { c++; if(c>colMax){ c=0; r=clamp(r+1,0,rowMax) } }
@@ -108,16 +200,12 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
           setSel({r1:r,r2:r,c1:c,c2:c})
           return
         }
-
-        // Skriv et tegn → start redigering og **ta med første tegn**
         if(e.key.length===1 && !e.ctrlKey && !e.metaKey){
           if(!hasSel(sel)) return
           e.preventDefault()
           setEditing({ r: sel.r1, c: sel.c1, mode:'replace', seed:e.key })
           return
         }
-
-        // F2 → redigering (caret på slutten)
         if(e.key==='F2'){
           if(!hasSel(sel)) return
           e.preventDefault()
@@ -130,7 +218,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return()=>document.removeEventListener('keydown',onKey,true)
   },[columns.length, editing, sel])
 
-  // === Mouse selection ===
+  // === Mouse selection (uendret) ===
   const setGlobalNoSelect=(on:boolean)=>{
     const el=rootRef.current
     if(!el)return
@@ -169,34 +257,63 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setEditing({ r, c, mode:'selectAll' })
   }
 
-  // === Clipboard ===
+  // === ROLLUPS: beregn for nåværende data/kolonner ===
+  const { rollups, hasChildren } = useMemo(()=> computeRollups(data, columns), [data, columns])
+
+  const isAggregatedCell = (rowIndex:number, col: ColumnDef) => {
+    if (!hasChildren.has(rowIndex)) return false
+    if (col.isTitle) return false
+    return isNumericColumn(col) || isDateColumn(col)
+  }
+
+  const displayValue = (rowIndex:number, col: ColumnDef, stored: CellValue): CellValue => {
+    if (isAggregatedCell(rowIndex, col)){
+      const rec = rollups.get(rowIndex)
+      if (rec && rec[col.key] !== undefined) return rec[col.key]!
+    }
+    return stored
+  }
+
+  // === Clipboard (kopi bruker visningsverdi; lim inn beskytter aggregert parent) ===
   const onCopy=(e:React.ClipboardEvent)=>{
     if(!hasSel(sel)) return
     const {r1,r2,c1,c2}=sel
-    const m:string[][]=[]
+    const m:(string|number|'')[][]=[]
     for(let r=r1;r<=r2;r++){
       const row=data[r]
-      const line=[]
-      for(let c=c1;c<=c2;c++){line.push(String(row.cells[columns[c].key]??''))}
+      const line:(string|number|'')[]=[]
+      for(let c=c1;c<=c2;c++){
+        const col=columns[c]
+        const stored = row.cells[col.key] ?? ''
+        line.push(displayValue(r,col,stored) as any)
+      }
       m.push(line)
     }
     e.clipboardData.setData('text/plain',toTSV(m));e.preventDefault()
   }
+
   const onPaste=(e:React.ClipboardEvent)=>{
     if(!hasSel(sel)) return
     const txt=e.clipboardData.getData('text/plain');if(!txt)return
     e.preventDefault()
     const m=parseClipboard(txt)
     const next=data.slice();const {r1,c1}=sel
-    for(let i=0;i<m.length;i++){const rr=r1+i;if(rr>=next.length)break
-      for(let j=0;j<m[i].length;j++){const cc=c1+j;if(cc>=columns.length)break
-        const col=columns[cc];const raw=m[i][j]
-        next[rr].cells[col.key]=isNumericColumn(col)?(raw===''?'':Number(raw)):raw
-      }}
+    for(let i=0;i<m.length;i++){
+      const rr=r1+i;if(rr>=next.length)break
+      for(let j=0;j<m[i].length;j++){
+        const cc=c1+j;if(cc>=columns.length)break
+        const col=columns[cc]
+        // Ikke skriv inn i aggregert parent-celle
+        if (isAggregatedCell(rr, col)) continue
+        const raw=m[i][j]
+        if(isNumericColumn(col)) next[rr].cells[col.key]=(raw===''?'':Number(raw))
+        else next[rr].cells[col.key]=raw
+      }
+    }
     setAndPropagate(next)
   }
 
-  // === Sammendrag (uendret) ===
+  // === Sammendrag (øverst) – uendret atferd ===
   const sums=useMemo(()=>{
     if(!showSummary||summaryValues)return null
     const s:Record<string,CellValue>={}
@@ -228,7 +345,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         </div>
       )}
 
-      {/* rows (utseende uendret) */}
+      {/* rows (utseende uendret; parent-celler viser aggregat) */}
       {data.map((row,rIdx)=>{
         const showIndex=rowHasContent(row,columns)
         return(
@@ -239,11 +356,15 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             const top=inSel&&rIdx===sel.r1,bottom=inSel&&rIdx===sel.r2,left=inSel&&cIdx===sel.c1,right=inSel&&cIdx===sel.c2
             const classes=['tc-cell'];if(inSel)classes.push('sel');if(top)classes.push('sel-top');if(bottom)classes.push('sel-bottom');if(left)classes.push('sel-left');if(right)classes.push('sel-right')
 
-            const editingHere=!!editing && editing.r===rIdx && editing.c===cIdx
-            const currentVal = String(row.cells[col.key] ?? '')
+            const storedVal = row.cells[col.key] ?? ''
+            const shownVal = displayValue(rIdx, col, storedVal)
+            const canEditThisCell = !(isAggregatedCell(rIdx, col)) // parent-aggregat = lesevisning (tittel kan fortsatt editeres)
+
+            const editingHere = !!editing && editing.r===rIdx && editing.c===cIdx && canEditThisCell
+            const titleAttr = typeof shownVal === 'number' ? String(shownVal) : String(shownVal)
 
             if(editingHere){
-              // Felles hjelpefunksjon for Enter/Tab commit+flytt
+              // (identisk redigeringslogikk som låst versjon)
               const handleCommitMove = (value:string, key:string, isTextarea:boolean, e:React.KeyboardEvent)=>{
                 const dir =
                   key==='Enter' ? (e.shiftKey ? 'up' : 'down') :
@@ -258,7 +379,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
               if(isNumericColumn(col)){
                 const seed = editing!.seed && /[0-9\-\.,]/.test(editing!.seed) ? editing!.seed : ''
-                const defaultValue = editing!.mode==='replace' ? seed : currentVal
+                const defaultValue = editing!.mode==='replace' ? seed : String(storedVal)
                 return(
                   <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
                     <input
@@ -276,8 +397,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                       }}
                       onKeyDown={e=>{
                         if(e.key==='Enter' || e.key==='Tab'){
-                          handleCommitMove((e.target as HTMLInputElement).value, e.key, false, e)
-                          return
+                          handleCommitMove((e.target as HTMLInputElement).value, e.key, false, e); return
                         }
                         if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
                       }}
@@ -286,7 +406,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                   </div>
                 )
               } else {
-                const defaultValue = editing!.mode==='replace' ? (editing!.seed ?? '') : currentVal
+                const defaultValue = editing!.mode==='replace' ? (editing!.seed ?? '') : String(storedVal)
                 return(
                   <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
                     <textarea
@@ -308,12 +428,10 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                           const ta=e.currentTarget
                           const pos=ta.selectionStart??ta.value.length
                           ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos)
-                          ta.setSelectionRange(pos+1,pos+1)
-                          return
+                          ta.setSelectionRange(pos+1,pos+1); return
                         }
                         if(e.key==='Enter' || e.key==='Tab'){
-                          handleCommitMove((e.target as HTMLTextAreaElement).value, e.key, true, e)
-                          return
+                          handleCommitMove((e.target as HTMLTextAreaElement).value, e.key, true, e); return
                         }
                         if(e.key==='Escape'){ e.preventDefault(); setEditing(null) }
                       }}
@@ -330,13 +448,13 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
               data-cell data-r={rIdx} data-c={cIdx}
               onMouseDown={onCellMouseDown(rIdx,cIdx)}
               onDoubleClick={onCellDoubleClick(rIdx,cIdx)}
-              title={currentVal}>
+              title={titleAttr}>
               {col.isTitle?
                 <span className="tc-title">
                   <span className="tc-indent" style={{['--lvl' as any]:row.indent}}/>
-                  <span>{currentVal}</span>
+                  <span>{String(shownVal)}</span>
                 </span>
-              : <span>{currentVal}</span>}
+              : <span>{String(shownVal)}</span>}
             </div>)
           })}
         </div>)
