@@ -6,7 +6,7 @@
   --tc-edit-bg:#fffef7;
 }
 .tc-root{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--tc-fg);}
-.tc-wrap{border:1px solid var(--tc-grid); border-radius:8px; overflow:hidden; background:var(--tc-bg);}
+.tc-wrap{border:1px solid var(--tc-grid); border-radius:0; overflow:hidden; background:var(--tc-bg);}
 .tc-header{display:grid; border-bottom:1px solid var(--tc-grid); user-select:none;}
 .tc-row{display:grid; border-bottom:1px solid var(--tc-grid);}
 .tc-cell{padding:6px 8px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:default;}
