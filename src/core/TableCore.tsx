@@ -33,47 +33,117 @@ const fmtDatetime = (ms:number) => {
   return `${fmtDate(ms)} ${hh}:${mm}`
 }
 
-// ===== ROLLUPS (parent-aggregat) =====
+// ===== ROLLUPS (bottom-up: parent = aggregat av UMIDDELBARE children) =====
 type Rollups = Map<number, Record<string, CellValue>>
 type HasChildren = Set<number>
 
+/**
+ * Bygger parent→children-relasjoner ut fra indent, og beregner aggregat
+ * bottom-up slik at en parent oppsummerer SINE DIREKTE barn. Hvis et barn
+ * selv er parent, brukes barnets aggregat som bidrag (ikke barnebarn direkte).
+ * Parentens egne lagrede verdier inngår ikke i aggregatet.
+ */
 function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollups, hasChildren: HasChildren } {
-  const rollups: Rollups = new Map()
-  const hasChildren: HasChildren = new Set()
+  const childrenMap: Map<number, number[]> = new Map()
+  const parentOf: number[] = Array(rows.length).fill(-1)
+
+  // 1) Finn direkte parent for hver rad via stack
   const stack: Array<{ idx:number, indent:number }> = []
-  const ensureRec = (idx:number) => { if (!rollups.has(idx)) rollups.set(idx, {}); return rollups.get(idx)! }
-
   for (let i=0;i<rows.length;i++){
-    const curIndent = rows[i].indent
-    while (stack.length && stack[stack.length-1].indent >= curIndent) stack.pop()
+    const indent = rows[i].indent
+    while (stack.length && stack[stack.length-1].indent >= indent) stack.pop()
+    const parentIdx = stack.length ? stack[stack.length-1].idx : -1
+    parentOf[i] = parentIdx
+    if (parentIdx >= 0){
+      if (!childrenMap.has(parentIdx)) childrenMap.set(parentIdx, [])
+      childrenMap.get(parentIdx)!.push(i)
+    }
+    stack.push({ idx:i, indent })
+  }
 
-    for (const parent of stack){
-      hasChildren.add(parent.idx)
-      const rec = ensureRec(parent.idx)
-      for (const col of columns){
-        if (col.isTitle) continue
-        const v = rows[i].cells[col.key]
-        if (isNumericColumn(col)){
-          const cur = (typeof rec[col.key] === 'number') ? (rec[col.key] as number) : 0
-          rec[col.key] = cur + (typeof v === 'number' ? v : 0)
-        } else if (isDateColumn(col)){
-          const ms = toDateMs(v); if (ms == null) continue
-          const keyMin = `${col.key}__min_ms`, keyMax = `${col.key}__max_ms`
-          const curMin = typeof rec[keyMin] === 'number' ? (rec[keyMin] as number) : undefined
-          const curMax = typeof rec[keyMax] === 'number' ? (rec[keyMax] as number) : undefined
-          const newMin = curMin === undefined ? ms : Math.min(curMin, ms)
-          const newMax = curMax === undefined ? ms : Math.max(curMax, ms)
-          rec[keyMin] = newMin
-          rec[keyMax] = newMax
-          if (!col.dateRole){
+  const hasChildren: HasChildren = new Set(Array.from(childrenMap.keys()))
+  const rollups: Rollups = new Map()
+
+  // 2) Bottom-up: gå bakfra og beregn aggregat for noder med barn
+  for (let i=rows.length-1; i>=0; i--){
+    const kids = childrenMap.get(i)
+    if (!kids || kids.length===0) continue
+
+    const rec: Record<string, CellValue> = {}
+
+    for (const col of columns){
+      if (col.isTitle) continue
+
+      if (isNumericColumn(col)){
+        let sum = 0
+        for (const k of kids){
+          // bidrag = (barnets aggregat hvis det har barn) ellers barnets egen verdi
+          const childAgg = rollups.get(k)
+          if (childAgg && typeof childAgg[col.key] === 'number'){
+            sum += childAgg[col.key] as number
+          } else {
+            const v = rows[k].cells[col.key]
+            if (typeof v === 'number') sum += v
+          }
+        }
+        rec[col.key] = sum
+      }
+      else if (isDateColumn(col)){
+        // vi trenger min og max på basis av barns "start/end/auto"
+        let minMs: number | undefined = undefined
+        let maxMs: number | undefined = undefined
+
+        for (const k of kids){
+          const childAgg = rollups.get(k)
+          // Hent barns visningsrelevante verdier:
+          // - Hvis child har aggregat:
+          //    * dateRole 'start' → vi antar min på barnet
+          //    * dateRole 'end' → vi antar max på barnet
+          //    * ellers: kolonnen uten role lagrer "min→max" i col.key, men vi trenger ms:
+          //              vi lagrer derfor også hjelpefelt når vi lagde barn (se under).
+          // - Hvis child IKKE har aggregat: bruk barnets egne celler.
+          let childMin: number | null = null
+          let childMax: number | null = null
+
+          if (childAgg){
+            const cMin = childAgg[`${col.key}__min_ms`]
+            const cMax = childAgg[`${col.key}__max_ms`]
+            if (typeof cMin === 'number') childMin = cMin
+            if (typeof cMax === 'number') childMax = cMax
+          } else {
+            // barn er blad: ta v i denne kolonnen (enkel verdi)
+            const v = rows[k].cells[col.key]
+            const ms = toDateMs(v)
+            if (ms!=null){ childMin = ms; childMax = ms }
+          }
+
+          if (childMin!=null){
+            minMs = (minMs===undefined) ? childMin : Math.min(minMs, childMin)
+          }
+          if (childMax!=null){
+            maxMs = (maxMs===undefined) ? childMax : Math.max(maxMs, childMax)
+          }
+        }
+
+        // lagre hjelpefelt (ms) for videre oppover i treet
+        if (minMs!==undefined) rec[`${col.key}__min_ms`] = minMs
+        if (maxMs!==undefined) rec[`${col.key}__max_ms`] = maxMs
+
+        // sett synlig verdi i col.key KUN hvis kolonnen ikke har spesifikk role (auto "min→max")
+        if (!col.dateRole){
+          if (minMs!==undefined && maxMs!==undefined){
             rec[col.key] = col.type==='date'
-              ? (newMin===newMax ? fmtDate(newMin) : `${fmtDate(newMin)} → ${fmtDate(newMax)}`)
-              : (newMin===newMax ? fmtDatetime(newMin) : `${fmtDatetime(newMin)} → ${fmtDatetime(newMax)}`)
+              ? (minMs===maxMs ? fmtDate(minMs) : `${fmtDate(minMs)} → ${fmtDate(maxMs)}`)
+              : (minMs===maxMs ? fmtDatetime(minMs) : `${fmtDatetime(minMs)} → ${fmtDatetime(maxMs)}`)
+          } else {
+            rec[col.key] = ''
           }
         }
       }
     }
-    stack.push({ idx:i, indent:curIndent })
+
+    // NB: for dateRole 'start' / 'end' viser vi i render-fasen basert på __min_ms/__max_ms
+    rollups.set(i, rec)
   }
 
   return { rollups, hasChildren }
@@ -87,7 +157,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const [sel,setSel]=useState<Selection>(NOSEL)
   const [editing,setEditing]=useState<EditingState>(null)
 
-  // NEW: kollaps-tilstand (lagres på rad-id)
+  // Kollaps-tilstand (row.id)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
   const rootRef=useRef<HTMLDivElement|null>(null)
@@ -108,7 +178,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     const idxInVisible = visible.indexOf(r)
     const colMax=columns.length-1
     if (idxInVisible === -1){
-      // fall-back: finn nærmeste synlige etter r
       const nearest = visible.find(v=>v>=r) ?? visible[visible.length-1]
       return { r: nearest ?? r, c }
     }
@@ -152,7 +221,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   // ==== Global key handler (låst) ====
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
-      const rowMax=dataRef.current.length-1, colMax=columns.length-1
+      const colMax=columns.length-1
       if(e.altKey&&!e.shiftKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){
         if(!hasSel(sel)) return; e.preventDefault(); indentRow(sel.r1,e.key==='ArrowRight'?1:-1); return
       }
@@ -164,19 +233,12 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
           if(!hasSel(sel)) return
           e.preventDefault()
           let r=sel.r1,c=sel.c1
-          // bruk synlige rader
           if(e.key==='ArrowUp')  r = nextPosAfter(r,c,'up').r
           if(e.key==='ArrowDown')r = nextPosAfter(r,c,'down').r
-          if(e.key==='Left' || e.key==='ArrowLeft') c = clamp(c-1,0,colMax)
-          if(e.key==='Right'|| e.key==='ArrowRight')c = clamp(c+1,0,colMax)
-          if(e.key==='Tab'){
-            const n = nextPosAfter(r,c, e.shiftKey ? 'left':'right')
-            r = n.r; c = n.c
-          }
-          if(e.key==='Enter'){
-            const n = nextPosAfter(r,c, e.shiftKey ? 'up':'down')
-            r = n.r; c = n.c
-          }
+          if(e.key==='ArrowLeft')c = clamp(c-1,0,colMax)
+          if(e.key==='ArrowRight')c = clamp(c+1,0,colMax)
+          if(e.key==='Tab'){ const n = nextPosAfter(r,c, e.shiftKey ? 'left':'right'); r=n.r; c=n.c }
+          if(e.key==='Enter'){ const n = nextPosAfter(r,c, e.shiftKey ? 'up':'down'); r=n.r; c=n.c }
           setSel({r1:r,r2:r,c1:c,c2:c}); return
         }
         if(e.key.length===1 && !e.ctrlKey && !e.metaKey){
@@ -211,17 +273,17 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   // ==== ROLLUPS + hvilke rader har barn ====
   const { rollups, hasChildren } = useMemo(()=> computeRollups(data, columns), [data, columns])
 
-  // ==== Synlige rader (skjul alle descendants av kollapsede foreldre) ====
+  // ==== Synlige rader (skjul descendants av kollapsede foreldre) ====
   const visibleRowIndices = useMemo(()=>{
     const result:number[] = []
-    const stack: Array<{ id:string, indent:number, collapsed:boolean }> = []
+    const st: Array<{ id:string, indent:number, collapsed:boolean }> = []
     for (let i=0;i<data.length;i++){
       const row = data[i]
-      while (stack.length && stack[stack.length-1].indent >= row.indent) stack.pop()
-      const hiddenByAncestor = stack.some(a=>a.collapsed)
-      if (!hiddenByAncestor) result.push(i)
+      while (st.length && st[st.length-1].indent >= row.indent) st.pop()
+      const hidden = st.some(a=>a.collapsed)
+      if (!hidden) result.push(i)
       const isParent = hasChildren.has(i)
-      stack.push({ id: row.id, indent: row.indent, collapsed: isParent ? collapsed.has(row.id) : false })
+      st.push({ id: row.id, indent: row.indent, collapsed: isParent ? collapsed.has(row.id) : false })
     }
     return result
   }, [data, hasChildren, collapsed])
@@ -271,7 +333,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     const txt=e.clipboardData.getData('text/plain'); if(!txt) return
     e.preventDefault()
     const m=parseClipboard(txt); const next=data.slice()
-    // finn alle synlige rader fra start
     const startIdxInVisible = visibleRowIndices.indexOf(sel.r1)
     if (startIdxInVisible === -1) return
     for(let i=0;i<m.length;i++){
@@ -288,7 +349,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(next)
   }
 
-  // ==== Sammendrag øverst (uendret) ====
+  // ==== Sammendrag øverst (låst) ====
   const sums=useMemo(()=>{
     if(!showSummary||summaryValues)return null
     const s:Record<string,CellValue>={}
@@ -303,7 +364,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
   const gridCols=useMemo(()=>makeGridTemplate(columns),[columns])
 
-  // === Toggle knapp
+  // === Toggle collapse
   const toggleCollapse = (rowId:string) => {
     setCollapsed(prev=>{
       const n = new Set(prev)
@@ -354,7 +415,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             const editingHere = !!editing && editing.r===rVisibleIdx && editing.c===cIdx && canEditThisCell
             const titleAttr = String(shownVal)
 
-            // Disclosure i tittelkolonnen
             const maybeDisclosure = (col.isTitle && isParent) ? (
               <button
                 className="tc-disc"
