@@ -17,18 +17,17 @@ type EditMode = 'replace'|'caretEnd'|'selectAll'
 type EditingState = { r:number, c:number, mode:EditMode, seed?: string } | null
 
 // ===== Dato-hjelpere =====
-type Ms = number
-const toDateMs = (v:CellValue): Ms | null => {
+const toDateMs = (v:CellValue): number | null => {
   if (typeof v === 'number') { const d = new Date(v); return isNaN(+d) ? null : +d }
   if (typeof v === 'string' && v.trim()){ const d = new Date(v); return isNaN(+d) ? null : +d }
   return null
 }
-const fmtDate = (ms:Ms) => {
+const fmtDate = (ms:number) => {
   const d = new Date(ms)
   const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0')
   return `${y}-${m}-${day}`
 }
-const fmtDatetime = (ms:Ms) => {
+const fmtDatetime = (ms:number) => {
   const d = new Date(ms)
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0')
   return `${fmtDate(ms)} ${hh}:${mm}`
@@ -68,10 +67,10 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
         }
         rec[col.key] = sum
       } else if (isDateColumn(col)){
-        let minMs: Ms | undefined, maxMs: Ms | undefined
+        let minMs: number | undefined, maxMs: number | undefined
         for (const k of kids){
           const childAgg = rollups.get(k)
-          let childMin: Ms | null = null, childMax: Ms | null = null
+          let childMin: number | null = null, childMax: number | null = null
           if (childAgg){
             const cMin = childAgg[`${col.key}__min_ms`], cMax = childAgg[`${col.key}__max_ms`]
             if (typeof cMin==='number') childMin=cMin
@@ -155,6 +154,7 @@ export default function TableCore(props:TableCoreProps){
   }
   const isInsideBlock = (idx:number, s:number, e:number) => idx>=s && idx<=e
 
+  // Søsken-område
   const siblingRange = (idx:number) => {
     const arr = dataRef.current
     const L = arr[idx]?.indent ?? 0
@@ -212,7 +212,7 @@ export default function TableCore(props:TableCoreProps){
     return { r: visible[vi], c }
   }
 
-  // ==== Inn/utrykk (låst) ====
+  // ==== Inn/utrykk (låst begrensning) ====
   const indentRow=(rowIdx:number,delta:number)=>{
     const arr = dataRef.current
     const cur = arr[rowIdx]; if(!cur) return
@@ -343,8 +343,6 @@ export default function TableCore(props:TableCoreProps){
     return s
   },[showSummary,summaryValues,cols,data,summaryTitle])
 
-  const gridCols=useMemo(()=>makeGridTemplate(cols),[cols])
-
   // ==== Collapse (låst inkl. Alt-kaskade) ====
   const toggleCollapse = (rowId:string, cascadeIds: string[] = []) => {
     setCollapsed(prev=>{
@@ -374,16 +372,16 @@ export default function TableCore(props:TableCoreProps){
     })
   }
 
-  // ======== KOLONNE-RESIZE (NYTT) ========
+  // ======== KOLONNE-RESIZE (innebygd) ========
   const resizeRef = useRef<{ idx:number, startX:number, startW:number }|null>(null)
-
   const onColResizeDown = (idx:number)=>(e:React.MouseEvent)=>{
-    const col = colsRef.current[idx]; const startW = col.width ?? (rootRef.current?.querySelectorAll('.tc-header .tc-cell')[idx+1] as HTMLElement)?.getBoundingClientRect().width ?? 120
+    const hdrCells = rootRef.current?.querySelectorAll('.tc-header .tc-cell') as NodeListOf<HTMLElement> | null
+    const guess = hdrCells ? hdrCells[idx+1]?.getBoundingClientRect().width : undefined
+    const col = colsRef.current[idx]; const startW = col.width ?? guess ?? 120
     resizeRef.current = { idx, startX: e.clientX, startW }
     document.addEventListener('mousemove', onColResizeMove)
     document.addEventListener('mouseup', onColResizeUp, { once: true })
-    e.preventDefault()
-    e.stopPropagation()
+    e.preventDefault(); e.stopPropagation()
   }
   const onColResizeMove = (e:MouseEvent)=>{
     if(!resizeRef.current) return
@@ -454,7 +452,7 @@ export default function TableCore(props:TableCoreProps){
     setRowDropHint(null)
   }
 
-  const gridCols=useMemo(()=>makeGridTemplate(cols),[cols])
+  const gridCols = useMemo(()=>makeGridTemplate(cols),[cols])
 
   return (
   <div ref={rootRef} className="tc-root" style={rootStyleVars} onCopy={onCopy} onPaste={onPaste}>
@@ -473,7 +471,6 @@ export default function TableCore(props:TableCoreProps){
             title="Dra for å flytte kolonne"
           >
             <span className="tc-header-label">{col.title}</span>
-            {/* NYTT: resize-grepper */}
             <span
               className="tc-col-resizer"
               onMouseDown={onColResizeDown(idx)}
@@ -529,7 +526,7 @@ export default function TableCore(props:TableCoreProps){
             className="tc-cell tc-idx tc-row-handle"
             draggable
             onDragStart={onRowDragStart(rVisibleIdx)}
-            onDragEnd={onRowDragEnd}
+            onDragEnd={()=>setRowDropHint(null)}
             title="Dra for å flytte rad (innen samme innrykk)"
           >
             {showIndex? visiblePos+1 : ''}
