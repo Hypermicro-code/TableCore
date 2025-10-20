@@ -67,20 +67,27 @@
 /* ==== [BLOCK: DnD styling] END ==== */
 
 /* ==== [BLOCK: Row drop hint] BEGIN ==== */
-.tc-row { position: relative; }
+.tc-row {
+  position: relative;
+  overflow: visible;           /* Viktig: ikke klipp bort pseudo-linjene */
+}
+
 .tc-row.tc-drop-before::before,
 .tc-row.tc-drop-after::after{
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: #2b6cb0; /* diskret blå strek */
+  left: -1px;                  /* trekk 1px ut forbi grid-kanten */
+  right: -1px;
+  height: 3px;                 /* litt tykkere for synlighet */
+  background: #1e66ff;         /* klar blå */
   pointer-events: none;
-  z-index: 5; 
+  z-index: 999;                /* alltid over cellene */
+  opacity: 0.95;
 }
-.tc-row.tc-drop-before::before{ top: 0; }
-.tc-row.tc-drop-after::after{ bottom: 0; }
+
+.tc-row.tc-drop-before::before{ top: -2px; }    /* løft over top-border */
+.tc-row.tc-drop-after::after{ bottom: -2px; }   /* senk under bottom-border */
 /* ==== [BLOCK: Row drop hint] END ==== */
+
 
 /* ==== [BLOCK: TableCore CSS] END ==== */
