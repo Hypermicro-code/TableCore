@@ -566,6 +566,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             ) : null
 
             if(editingHere){
+              classes.push('editing');
               const handleCommitMove = (value:string, key:string, _isTextarea:boolean, e:React.KeyboardEvent)=>{
                 const dir = key==='Enter' ? (e.shiftKey ? 'up' : 'down') : key==='Tab' ? (e.shiftKey ? 'left' : 'right') : null
                 if(!dir) return
