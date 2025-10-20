@@ -1,96 +1,143 @@
+/* ===== Morning Coffee Labs – Light Project Ribbon Theme ===== */
 :root{
-  --tb-height: 48px;          /* Høyde toolbar */
-  --tb-pad-x: 8px;
-  --tb-gap: 8px;
-  --tb-icon: 18px;            /* Ikonstørrelse */
-  --tb-radius: 0px;           /* SPISSE hjørner (0px) */
-  --tb-bg: #0f1115;
-  --tb-fg: #e6e6e6;
-  --tb-muted: #9aa0a6;
-  --tb-accent: #3b82f6;
-  --tb-border: #22252b;
+  /* Palett (lys kaffe) */
+  --coffee-bg: #f7f3ee;         /* bakgrunn app */
+  --coffee-paper: #ffffff;      /* kort, ribbon */
+  --coffee-ink: #2b2b2b;        /* tekst */
+  --coffee-muted: #6b6b6b;      /* sekundær tekst */
+  --coffee-accent: #8b5e34;     /* kaffe-brun */
+  --coffee-accent-2: #c49a6c;   /* lysere brun */
+  --coffee-border: #e6e0d9;     /* linjer/border */
+  --coffee-hover: #f0ebe5;      /* hover */
+  --coffee-focus: #d7c7b5;      /* fokus-outline */
 
-  --tb-hover: #1a1d23;
-  --tb-active: #101218;
-  --tb-focus: #60a5fa55;
+  /* Tokens */
+  --tb-radius: 0px;       /* spisse hjørner */
+  --menubar-h: 36px;      /* kompakt toppmeny */
+  --ribbon-h: 64px;       /* lav ribbon-høyde */
+  --btn-h: 28px;          /* knapphøyde */
+  --btn-icon: 16px;       /* ikonstørrelse */
+  --gap: 6px;
+  --pad: 8px;
+  --font: 13px;
 }
 
 *{ box-sizing: border-box; }
-html,body,#root{ height:100%; margin:0; background:#0b0d11; color:var(--tb-fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
+html,body,#root{ height:100%; margin:0; }
+body{
+  background: var(--coffee-bg);
+  color: var(--coffee-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-size: var(--font);
+}
 
-.toolbar{
-  height: var(--tb-height);
-  background: var(--tb-bg);
-  border-bottom: 1px solid var(--tb-border);
+/* ===== MENYLINJE (faner: File | Edit | … ) ===== */
+.menubar{
+  height: var(--menubar-h);
+  background: var(--coffee-paper);
+  border-bottom: 1px solid var(--coffee-border);
   display: grid;
-  grid-template-columns: 1fr auto 1fr; /* venstre - midt - høyre */
+  grid-template-columns: 1fr auto; /* tabs venstre | logo høyre */
   align-items: center;
-  padding: 0 var(--tb-pad-x);
-  gap: var(--tb-gap);
+  padding: 0 var(--pad);
 }
 
-.tb-left,.tb-center,.tb-right{
-  display:flex; align-items:center; gap: var(--tb-gap);
+.menu-tabs{
+  display:flex; align-items:center; gap: 2px;
 }
-.tb-center{ justify-content: center; flex-wrap: wrap; }
-.tb-right{ justify-content: flex-end; }
+.menu-tab{
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--tb-radius);
+  height: calc(var(--menubar-h) - 8px);
+  padding: 0 10px;
+  color: var(--coffee-ink);
+  cursor: pointer;
+}
+.menu-tab:hover{ background: var(--coffee-hover); }
+.menu-tab[aria-selected="true"]{
+  border-color: var(--coffee-border);
+  border-bottom-color: var(--coffee-accent);
+  font-weight: 600;
+}
+.menu-tab:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+
+/* Logo-høyre */
+.menu-right{
+  display:flex; align-items:center; gap: 8px;
+}
+.menu-logo{
+  display:inline-flex; align-items:center; gap:6px;
+  color: var(--coffee-accent);
+  font-weight: 600;
+}
+.menu-logo img{ height: 18px; width: auto; }
+
+/* ===== RIBBON (grupper av verktøy under fanene) ===== */
+.ribbon{
+  height: var(--ribbon-h);
+  background: var(--coffee-paper);
+  border-bottom: 1px solid var(--coffee-border);
+  display:flex; align-items: stretch; gap: 10px;
+  padding: 6px var(--pad);
+  overflow-x: auto;
+}
 
 .tb-group{
-  display:flex; align-items:center; gap:6px;
-  padding: 4px;
-  border: 1px solid transparent;
-  border-radius: var(--tb-radius);
-}
-
-.tb-divider{
-  width:1px; height:24px; background:var(--tb-border);
-}
-
-.tb-btn{
-  display:inline-flex; align-items:center; gap:8px;
-  height:32px; padding: 0 10px;
-  border-radius: var(--tb-radius);
-  background: transparent;
-  color: var(--tb-fg);
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: 14px;
-}
-.tb-btn:hover{ background: var(--tb-hover); }
-.tb-btn:active{ background: var(--tb-active); }
-.tb-btn[aria-pressed="true"]{ border-color: var(--tb-accent); }
-.tb-btn:disabled{
-  opacity:.5; cursor:not-allowed; background: transparent; border-color: transparent;
-}
-.tb-btn:focus-visible{
-  outline: 2px solid var(--tb-focus); outline-offset: 2px;
-}
-
-.tb-icon{ width: var(--tb-icon); height: var(--tb-icon); }
-
-.tb-overflow{
-  position: relative;
-}
-.tb-overflow-panel{
-  position: absolute;
-  right: 0; top: calc(100% + 6px);
-  min-width: 260px;
-  background: var(--tb-bg);
-  border: 1px solid var(--tb-border);
-  border-radius: var(--tb-radius);
-  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  display:flex; align-items:center; gap: 6px;
   padding: 6px;
-  display: grid;
-  gap: 6px;
-  z-index: 50;
+  border: 1px solid var(--coffee-border);
+  background: #fff;
+  border-radius: var(--tb-radius);
+  height: 100%;
+}
+.tb-group[aria-label]::before{
+  content: attr(aria-label);
+  font-size: 11px; color: var(--coffee-muted);
+  position: relative; top: -34px; /* liten gruppetittel-følelse */
+  margin-right: 6px;
 }
 
+/* Knappestil (kompakt) */
+.tb-btn{
+  display:inline-flex; align-items:center; gap: 6px;
+  height: var(--btn-h);
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--coffee-border);
+  border-radius: var(--tb-radius);
+  color: var(--coffee-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tb-btn:hover{ background: var(--coffee-hover); }
+.tb-btn:active{ background: #efe7de; }
+.tb-btn:disabled{ opacity:.5; cursor: not-allowed; }
+.tb-btn:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+
+.tb-icon{ width: var(--btn-icon); height: var(--btn-icon); display:inline-flex; }
+
+/* Divider inni grupper */
+.tb-divider{
+  width:1px; height: calc(100% - 12px);
+  background: var(--coffee-border);
+  margin: 6px 2px;
+}
+
+/* Innhold under ribbon i demoen */
+.page{
+  padding: 12px;
+}
 .status-chip{
   display:inline-flex; align-items:center; gap:6px;
-  border: 1px solid var(--tb-border);
-  border-radius: var(--tb-radius);
-  height: 28px; padding: 0 8px; color: var(--tb-muted);
+  height: var(--btn-h);
+  padding: 0 8px;
+  border: 1px solid var(--coffee-border);
+  background: #fff;
+  color: var(--coffee-muted);
 }
-.status-dot{ width:8px; height:8px; border-radius: 50%; background:#82e; }
+.status-dot{ width:8px; height:8px; border-radius:50%; background: #c9c9c9; }
 .status-ok{ background:#22c55e; }
 .status-off{ background:#ef4444; }
