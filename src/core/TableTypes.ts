@@ -1,7 +1,7 @@
 // ==== [BLOCK: Types] BEGIN ====
 export type CellValue = string | number | ''
 
-export type ColumnType = 'text' | 'number'
+export type ColumnType = 'text' | 'number' | 'date' | 'datetime' // ← la til dato-typer
 
 export type ColumnDef = {
   key: string
@@ -32,15 +32,9 @@ export type TableCoreProps = {
   rows: RowData[]
   onChange: (next: RowData[]) => void
 
-  /**
-   * Viser sammendragslinje mellom header og første rad.
-   * Hvis 'summaryValues' er satt, brukes disse verdiene (fra app/prosjekt).
-   * Hvis ikke, faller vi tilbake til automatisk summering for numeriske kolonner
-   * som har summarizable:true.
-   */
+  /** Sammendragslinje mellom header og første rad. */
   showSummary?: boolean
   summaryValues?: Record<string, CellValue>
-  /** Teksten i tittelkolonnen for sammendragslinja hvis title-cellen ellers er tom */
   summaryTitle?: string
 }
 // ==== [BLOCK: Types] END ====
