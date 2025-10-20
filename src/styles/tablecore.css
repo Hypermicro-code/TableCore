@@ -140,6 +140,29 @@
 /* Sørg for at seleksjonsramme/markering tegnes over vertikale linjer */
 .tc-cell.sel { position: relative; z-index: 1; }
 /* ==== [BLOCK: Vertical grid lines] END ==== */
+/* ==== [BLOCK: UI sizing from app] BEGIN ==== */
+/* Hvis appen setter --tc-font-size og/eller --tc-row-h via props.ui brukes de her */
+.tc-root { --tc-font-size: 14px; --tc-row-h: 28px; }
+.tc-cell { font-size: var(--tc-font-size); min-height: var(--tc-row-h); }
+/* ==== [BLOCK: UI sizing from app] END ==== */
+
+/* ==== [BLOCK: Column resize handle] BEGIN ==== */
+.tc-header-cell { position: relative; }
+.tc-header-label { pointer-events: none; } /* så drag ikke forstyrrer resize */
+
+/* selve “grepet” helt til høyre i headercellen */
+.tc-col-resizer{
+  position:absolute;
+  top:0; right:-3px; width:6px; height:100%;
+  cursor: col-resize;
+}
+/* valgfritt: en tynn visuell strek ved hover for å gjøre det tydelig */
+.tc-col-resizer:hover::after{
+  content:"";
+  position:absolute; top:0; bottom:0; left:2px; width:1px;
+  background: var(--tc-grid);
+}
+/* ==== [BLOCK: Column resize handle] END ==== */
 
 
 /* ==== [BLOCK: TableCore CSS] END ==== */
