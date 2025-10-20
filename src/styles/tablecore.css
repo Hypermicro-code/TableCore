@@ -18,6 +18,7 @@
   background: transparent;          /* behold lik bakgrunn */
   outline: 2px solid #000;          /* svart kantlinje */
   outline-offset: -2px;
+  z-index: 2; 
 }
 
 /* Input/textarea skal se ut som cellens tekst – ikke egen stil */
