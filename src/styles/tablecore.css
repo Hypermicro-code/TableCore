@@ -36,4 +36,18 @@
 /* Kombinasjon parent+child = fet + kursiv + uppercase (automatisk av de to reglene) */
 /* ==== [BLOCK: Parent/Child Typography] END ==== */
 
+/* ==== [BLOCK: Disclosure Button] BEGIN ==== */
+.tc-disc{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:18px; height:18px;
+  margin-right:4px;
+  border:none; background:transparent; padding:0;
+  cursor:pointer; font-size:12px; line-height:1;
+  color: inherit;
+}
+.tc-disc:focus{ outline:1px dashed #bbb; outline-offset:2px; }
+/* ==== [BLOCK: Disclosure Button] END ==== */
+
 /* ==== [BLOCK: TableCore CSS] END ==== */
