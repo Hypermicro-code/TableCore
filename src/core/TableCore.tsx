@@ -87,7 +87,7 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
           if (minMs!==undefined && maxMs!==undefined){
             rec[col.key] = col.type==='date'
               ? (minMs===maxMs ? fmtDate(minMs) : `${fmtDate(minMs)} → ${fmtDate(maxMs)}`)
-              : (minMs===maxMs ? fmtDatetime(minMs) : `${fmtDatetime(minMs)} → ${fmtDatetime(maxMs)}`)
+              : (minMs===maxMs ? fmtDatetime(minMs) : `${fmtDatetime(maxMs)}`)
           } else rec[col.key] = ''
         }
       }
@@ -155,7 +155,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return { start, end, level: L }
   }
 
-  // ===== Navigasjon (låst)
+  // ==== ROLLUPS + synlighet
   const { rollups, hasChildren } = useMemo(()=> computeRollups(data, cols), [data, cols])
 
   const visibleRowIndices = useMemo(()=>{
@@ -208,7 +208,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(arr.map((r,i)=> i===rowIdx ? { ...r, indent: nextIndent } : r))
   }
 
-  // ==== Global key handler (låst — vi endrer IKKE radrekkefølge med tast) ====
+  // ==== Global key handler (låst – ingen rad-flytting med tast) ====
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       const colMax=colsRef.current.length-1
@@ -369,7 +369,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     })
   }
 
-  // ======== RAD-DRAG (blokk, samme nivå, over/under + tail-drop) ========
+  // ======== RAD-DRAG (blokk, samme nivå, over/under) ========
   const onRowDragStart = (rowIdx:number)=>(e:React.DragEvent)=>{ e.dataTransfer.setData('text/x-row-index', String(rowIdx)); e.dataTransfer.effectAllowed = 'move' }
   const onRowDragOver = (rowIdx:number)=>(e:React.DragEvent)=>{ e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
   const onRowDrop = (rowIdx:number)=>(e:React.DragEvent)=>{
@@ -380,14 +380,9 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     const arr = dataRef.current.slice()
     const { start: sA, end: eA, baseIndent: L } = blockOf(from)
     if (isInsideBlock(rowIdx, sA, eA)) return // kan ikke slippe inni egen blokk
+    if (arr[rowIdx]?.indent !== L) return // mål må være samme nivå
 
-    // mål må være samme nivå
-    if (arr[rowIdx]?.indent !== L) return
-
-    // Finn søsken-område
-    const { start: sibStart, end: sibEnd } = siblingRange(rowIdx)
-
-    // Bestem om vi slipper OVER eller UNDER mål-blokken (bruk radens bounding box)
+    // Bestem OVER/UNDER målrad
     const rowEl = (rootRef.current)?.querySelector(`.tc-row[data-r="${rowIdx}"]`) as HTMLElement | null
     let placeAfterTargetBlock = false
     if (rowEl){
@@ -395,55 +390,30 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
       placeAfterTargetBlock = (e.clientY > rect.top + rect.height/2)
     }
 
-    // Finn start på mål-blokken (hele blokk som begynner på rowIdx)
-    const { start: sB, end: eB } = blockOf(rowIdx)
+    // Finn mål-blokk
+    const blockOfLocal = (idx:number) => {
+      const baseIndent = arr[idx]?.indent ?? 0
+      let end = idx
+      for (let i=idx+1;i<arr.length;i++){
+        if (arr[i].indent<=baseIndent) break
+        end = i
+      }
+      return { start: idx, end, baseIndent }
+    }
+    const { start: sB, end: eB } = blockOfLocal(rowIdx)
 
-    // Plasseringsindeks i original array:
+    // Plasseringsindeks
     let insertAt = placeAfterTargetBlock ? eB + 1 : sB
 
-    // Beskytt mot å sette midt inne i A sin egen blokk-område etter fjerning
+    // Flytt A-blokka
     const blockA = arr.slice(sA, eA+1)
     arr.splice(sA, blockA.length)
-    // Juster insertAt dersom blokka fjernet foran mål
     if (insertAt > sA) insertAt -= blockA.length
-
-    // Ikke tillat å gå utenfor søsken-området
-    if (insertAt < siblingRange(insertAt).start) insertAt = siblingRange(insertAt).start
-    if (insertAt > siblingRange(insertAt).end + 1) insertAt = siblingRange(insertAt).end + 1
-
-    arr.splice(insertAt, 0, ...blockA)
-    setAndPropagate(arr)
-    setSel({ r1: insertAt, r2: insertAt, c1: sel.c1, c2: sel.c1 })
-  }
-
-  // Siste-plassering: slipp nederst (ny siste i samme nivå som den dragne blokka)
-  const onTailDrop = (e:React.DragEvent)=>{
-    e.preventDefault()
-    const fromStr = e.dataTransfer.getData('text/x-row-index'); if (fromStr==='') return
-    const from = Number(fromStr); if (Number.isNaN(from)) return
-
-    const arr = dataRef.current.slice()
-    const { start: sA, end: eA, baseIndent: L } = blockOf(from)
-    const blockA = arr.slice(sA, eA+1)
-
-    // Finn søsken-området til "from"
-    const { start: sibStart, end: sibEnd } = siblingRange(from)
-    // Beregn “siste tillatte posisjon” rett etter siste søsken-blokk:
-    const lastInsert = sibEnd + 1
-
-    // Hvis blokka allerede er sist – gjør ingenting
-    if (eA === sibEnd) return
-
-    // Fjern og sett inn som ny siste
-    arr.splice(sA, blockA.length)
-    let insertAt = lastInsert
-    if (insertAt > sA) insertAt -= blockA.length // juster etter fjerning foran
     arr.splice(insertAt, 0, ...blockA)
 
     setAndPropagate(arr)
     setSel({ r1: insertAt, r2: insertAt, c1: sel.c1, c2: sel.c1 })
   }
-  const onTailDragOver = (e:React.DragEvent)=>{ e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
 
   return (
   <div ref={rootRef} className="tc-root" onCopy={onCopy} onPaste={onPaste}>
@@ -622,17 +592,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
           })}
         </div>)
       })}
-
-      {/* Tail-drop: slipp for å bli ny siste i nivået til den dragne blokka */}
-      <div
-        className="tc-tail-drop"
-        onDragOver={onTailDragOver}
-        onDrop={onTailDrop}
-        title="Slipp her for å plassere blokken som ny siste i sitt nivå"
-      >
-        Slipp her for å plassere sist i nivået
-      </div>
-
     </div>
   </div>)
 }
