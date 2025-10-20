@@ -16,30 +16,36 @@ const hasSel = (s:Selection)=> s.r1>=0 && s.c1>=0 && s.r2>=0 && s.c2>=0
 type EditMode = 'replace'|'caretEnd'|'selectAll'
 type EditingState = { r:number, c:number, mode:EditMode, seed?: string } | null
 
-// ===== HJELPERE for dato ====
-const toDate = (v:CellValue): Date | null => {
-  if (typeof v === 'number') return new Date(v)
+// ===== HJELPERE for dato / format =====
+const toDateMs = (v:CellValue): number | null => {
+  if (typeof v === 'number') {
+    // tolker som ms siden epoch hvis det virker fornuftig
+    // (vi validerer ved å lage en Date, uten å kaste)
+    const d = new Date(v)
+    return isNaN(+d) ? null : +d
+  }
   if (typeof v === 'string' && v.trim()){
     const d = new Date(v)
-    return isNaN(+d) ? null : d
+    return isNaN(+d) ? null : +d
   }
   return null
 }
-const fmtDate = (d:Date) => {
+const fmtDate = (ms:number) => {
+  const d = new Date(ms)
   const y = d.getFullYear()
   const m = String(d.getMonth()+1).padStart(2,'0')
   const day = String(d.getDate()).padStart(2,'0')
   return `${y}-${m}-${day}`
 }
-const fmtDatetime = (d:Date) => {
+const fmtDatetime = (ms:number) => {
+  const d = new Date(ms)
   const hh = String(d.getHours()).padStart(2,'0')
   const mm = String(d.getMinutes()).padStart(2,'0')
-  return `${fmtDate(d)} ${hh}:${mm}`
+  return `${fmtDate(ms)} ${hh}:${mm}`
 }
 
 // ===== ROLLUPS (parent-aggregat) =====
-// Beregner for hver parent-rad (har under-rader) en verdi per kolonne:
-// number → sum av hele under-treet, date/datetime → min → max
+// number → sum, date/datetime → min→max (lagres som number (ms) på hjelpe-nøkler)
 type Rollups = Map<number, Record<string, CellValue>>
 type HasChildren = Set<number>
 
@@ -47,10 +53,7 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
   const rollups: Rollups = new Map()
   const hasChildren: HasChildren = new Set()
 
-  // Stack med {idx, indent}. Hver gang vi ser en rad med indent k,
-  // er alle på stacken med indent < k foreldre (for subtree).
   const stack: Array<{ idx:number, indent:number }> = []
-
   const ensureRec = (idx:number) => {
     if (!rollups.has(idx)) rollups.set(idx, {})
     return rollups.get(idx)!
@@ -58,13 +61,10 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
 
   for (let i=0;i<rows.length;i++){
     const curIndent = rows[i].indent
-
-    // Pop inntil topp har mindre indent enn nå
     while (stack.length && stack[stack.length-1].indent >= curIndent){
       stack.pop()
     }
 
-    // Nå er alt i stacken foreldre til i (for hele treet). Akkumuler verdier oppover.
     for (const parent of stack){
       hasChildren.add(parent.idx)
       const rec = ensureRec(parent.idx)
@@ -75,25 +75,26 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
           const cur = (typeof rec[col.key] === 'number') ? (rec[col.key] as number) : 0
           rec[col.key] = cur + (typeof v === 'number' ? v : 0)
         } else if (isDateColumn(col)){
-          const d = toDate(v)
-          if (!d) continue
-          const keyMin = `${col.key}__min`
-          const keyMax = `${col.key}__max`
-          const curMin = rec[keyMin] as Date | undefined
-          const curMax = rec[keyMax] as Date | undefined
-          rec[keyMin] = curMin ? (d < curMin ? d : curMin) : d
-          rec[keyMax] = curMax ? (d > curMax ? d : curMax) : d
-          // Synlig verdi lagres i col.key
-          const minD = rec[keyMin] as Date
-          const maxD = rec[keyMax] as Date
-          rec[col.key] = (col.type==='date')
-            ? (minD && maxD ? (fmtDate(minD) + (minD.getTime()!==maxD.getTime()? ` → ${fmtDate(maxD)}` : '')) : '')
-            : (minD && maxD ? (fmtDatetime(minD) + (minD.getTime()!==maxD.getTime()? ` → ${fmtDatetime(maxD)}` : '')) : '')
+          const ms = toDateMs(v)
+          if (ms == null) continue
+          const keyMin = `${col.key}__min_ms`
+          const keyMax = `${col.key}__max_ms`
+          const curMin = typeof rec[keyMin] === 'number' ? (rec[keyMin] as number) : undefined
+          const curMax = typeof rec[keyMax] === 'number' ? (rec[keyMax] as number) : undefined
+          const newMin = curMin === undefined ? ms : Math.min(curMin, ms)
+          const newMax = curMax === undefined ? ms : Math.max(curMax, ms)
+          // hjelpefelt (tall): ok iht CellValue (=number)
+          rec[keyMin] = newMin
+          rec[keyMax] = newMax
+          // Synlig verdi i col.key (string)
+          if (col.type==='date'){
+            rec[col.key] = newMin===newMax ? fmtDate(newMin) : `${fmtDate(newMin)} → ${fmtDate(newMax)}`
+          } else {
+            rec[col.key] = newMin===newMax ? fmtDatetime(newMin) : `${fmtDatetime(newMin)} → ${fmtDatetime(newMax)}`
+          }
         }
       }
     }
-
-    // Legg nåværende rad på stack (kan bli parent for senere rader)
     stack.push({ idx:i, indent:curIndent })
   }
 
@@ -115,7 +116,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
   const dataRef=useRef(data);useEffect(()=>{dataRef.current=data},[data])
 
-  // === Redigering / commit (uendret) ===
+  // === Redigering / commit (låst logikk) ===
   const commitEdit=(r:number,c:number,val:string)=>{
     const col=columns[c]
     const parsed:CellValue=isNumericColumn(col)?(val===''?'':Number(val)):val
@@ -124,7 +125,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setEditing(null)
   }
 
-  // Hjelper for neste pos etter commit (uendret)
   const nextPosAfter = (r:number,c:number,dir:'down'|'up'|'right'|'left')=>{
     const rowMax=dataRef.current.length-1
     const colMax=columns.length-1
@@ -142,13 +142,12 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return {r:rr,c:cc}
   }
 
-  // === Inn/utrykk + flytt rad (BEGRENSET INNRYKK HER) ===
+  // === Inn/utrykk + flytt rad (med begrensning) ===
   const indentRow=(rowIdx:number,delta:number)=>{
     const arr = dataRef.current
     const cur = arr[rowIdx]
     if(!cur) return
     const prevIndent = rowIdx>0 ? arr[rowIdx-1].indent : 0
-    // Ny regel: kan ikke bli dypere enn (forrige rad + 1)
     const maxIndent = prevIndent + 1
     const desired = cur.indent + delta
     const nextIndent = clamp(desired, 0, maxIndent)
@@ -166,7 +165,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setSel(s=>hasSel(s)?{r1:tgt,r2:tgt,c1:s.c1,c2:s.c1}:{r1:tgt,r2:tgt,c1:0,c2:0})
   }
 
-  // === Global key handler (uendret fra låst versjon) ===
+  // === Global key handler (låst) ===
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       const rowMax=dataRef.current.length-1
@@ -218,7 +217,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return()=>document.removeEventListener('keydown',onKey,true)
   },[columns.length, editing, sel])
 
-  // === Mouse selection (uendret) ===
+  // === Mouse selection (låst) ===
   const setGlobalNoSelect=(on:boolean)=>{
     const el=rootRef.current
     if(!el)return
@@ -274,7 +273,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     return stored
   }
 
-  // === Clipboard (kopi bruker visningsverdi; lim inn beskytter aggregert parent) ===
+  // === Clipboard ===
   const onCopy=(e:React.ClipboardEvent)=>{
     if(!hasSel(sel)) return
     const {r1,r2,c1,c2}=sel
@@ -313,7 +312,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(next)
   }
 
-  // === Sammendrag (øverst) – uendret atferd ===
+  // === Sammendrag (øverst) – uendret) ===
   const sums=useMemo(()=>{
     if(!showSummary||summaryValues)return null
     const s:Record<string,CellValue>={}
@@ -364,7 +363,6 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             const titleAttr = typeof shownVal === 'number' ? String(shownVal) : String(shownVal)
 
             if(editingHere){
-              // (identisk redigeringslogikk som låst versjon)
               const handleCommitMove = (value:string, key:string, isTextarea:boolean, e:React.KeyboardEvent)=>{
                 const dir =
                   key==='Enter' ? (e.shiftKey ? 'up' : 'down') :
@@ -428,7 +426,8 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                           const ta=e.currentTarget
                           const pos=ta.selectionStart??ta.value.length
                           ta.value=ta.value.slice(0,pos)+'\n'+ta.value.slice(pos)
-                          ta.setSelectionRange(pos+1,pos+1); return
+                          ta.setSelectionRange(pos+1,pos+1)
+                          return
                         }
                         if(e.key==='Enter' || e.key==='Tab'){
                           handleCommitMove((e.target as HTMLTextAreaElement).value, e.key, true, e); return
