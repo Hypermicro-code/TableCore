@@ -33,21 +33,14 @@ const fmtDatetime = (ms:number) => {
   return `${fmtDate(ms)} ${hh}:${mm}`
 }
 
-// ===== ROLLUPS (bottom-up: parent = aggregat av UMIDDELBARE children) =====
+// ===== ROLLUPS (bottom-up) =====
 type Rollups = Map<number, Record<string, CellValue>>
 type HasChildren = Set<number>
 
-/**
- * Bygger parent→children-relasjoner ut fra indent, og beregner aggregat
- * bottom-up slik at en parent oppsummerer SINE DIREKTE barn. Hvis et barn
- * selv er parent, brukes barnets aggregat som bidrag (ikke barnebarn direkte).
- * Parentens egne lagrede verdier inngår ikke i aggregatet.
- */
 function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollups, hasChildren: HasChildren } {
   const childrenMap: Map<number, number[]> = new Map()
   const parentOf: number[] = Array(rows.length).fill(-1)
 
-  // 1) Finn direkte parent for hver rad via stack
   const stack: Array<{ idx:number, indent:number }> = []
   for (let i=0;i<rows.length;i++){
     const indent = rows[i].indent
@@ -64,7 +57,6 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
   const hasChildren: HasChildren = new Set(Array.from(childrenMap.keys()))
   const rollups: Rollups = new Map()
 
-  // 2) Bottom-up: gå bakfra og beregn aggregat for noder med barn
   for (let i=rows.length-1; i>=0; i--){
     const kids = childrenMap.get(i)
     if (!kids || kids.length===0) continue
@@ -77,7 +69,6 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
       if (isNumericColumn(col)){
         let sum = 0
         for (const k of kids){
-          // bidrag = (barnets aggregat hvis det har barn) ellers barnets egen verdi
           const childAgg = rollups.get(k)
           if (childAgg && typeof childAgg[col.key] === 'number'){
             sum += childAgg[col.key] as number
@@ -89,19 +80,11 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
         rec[col.key] = sum
       }
       else if (isDateColumn(col)){
-        // vi trenger min og max på basis av barns "start/end/auto"
         let minMs: number | undefined = undefined
         let maxMs: number | undefined = undefined
 
         for (const k of kids){
           const childAgg = rollups.get(k)
-          // Hent barns visningsrelevante verdier:
-          // - Hvis child har aggregat:
-          //    * dateRole 'start' → vi antar min på barnet
-          //    * dateRole 'end' → vi antar max på barnet
-          //    * ellers: kolonnen uten role lagrer "min→max" i col.key, men vi trenger ms:
-          //              vi lagrer derfor også hjelpefelt når vi lagde barn (se under).
-          // - Hvis child IKKE har aggregat: bruk barnets egne celler.
           let childMin: number | null = null
           let childMax: number | null = null
 
@@ -111,25 +94,18 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
             if (typeof cMin === 'number') childMin = cMin
             if (typeof cMax === 'number') childMax = cMax
           } else {
-            // barn er blad: ta v i denne kolonnen (enkel verdi)
             const v = rows[k].cells[col.key]
             const ms = toDateMs(v)
             if (ms!=null){ childMin = ms; childMax = ms }
           }
 
-          if (childMin!=null){
-            minMs = (minMs===undefined) ? childMin : Math.min(minMs, childMin)
-          }
-          if (childMax!=null){
-            maxMs = (maxMs===undefined) ? childMax : Math.max(maxMs, childMax)
-          }
+          if (childMin!=null) minMs = (minMs===undefined) ? childMin : Math.min(minMs, childMin)
+          if (childMax!=null) maxMs = (maxMs===undefined) ? childMax : Math.max(maxMs, childMax)
         }
 
-        // lagre hjelpefelt (ms) for videre oppover i treet
         if (minMs!==undefined) rec[`${col.key}__min_ms`] = minMs
         if (maxMs!==undefined) rec[`${col.key}__max_ms`] = maxMs
 
-        // sett synlig verdi i col.key KUN hvis kolonnen ikke har spesifikk role (auto "min→max")
         if (!col.dateRole){
           if (minMs!==undefined && maxMs!==undefined){
             rec[col.key] = col.type==='date'
@@ -141,8 +117,6 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
         }
       }
     }
-
-    // NB: for dateRole 'start' / 'end' viser vi i render-fasen basert på __min_ms/__max_ms
     rollups.set(i, rec)
   }
 
@@ -364,11 +338,33 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
   const gridCols=useMemo(()=>makeGridTemplate(columns),[columns])
 
-  // === Toggle collapse
-  const toggleCollapse = (rowId:string) => {
+  // === Finn alle descendant-parents for en rad (brukes ved Alt+klikk)
+  const getDescendantParentIds = useCallback((startIdx:number): string[]=>{
+    const ids:string[] = []
+    const startIndent = data[startIdx]?.indent ?? 0
+    for (let i=startIdx+1;i<data.length;i++){
+      const r = data[i]
+      if (r.indent <= startIndent) break
+      // har denne rad i dag barn? (i nåværende datasett)
+      // vi bruker hasChildren fra rollups-beregningen
+      if (hasChildren.has(i)) ids.push(r.id)
+    }
+    return ids
+  },[data, hasChildren])
+
+  // === Toggle collapse (med Alt for å kaskadere)
+  const toggleCollapse = (rowId:string, cascadeIds: string[] = []) => {
     setCollapsed(prev=>{
       const n = new Set(prev)
-      if (n.has(rowId)) n.delete(rowId); else n.add(rowId)
+      const willCollapse = !n.has(rowId)
+      // toggl parent
+      if (willCollapse) n.add(rowId); else n.delete(rowId)
+      // hvis kaskade: sett alle barn-parents til samme endelige tilstand
+      if (cascadeIds.length){
+        for (const cid of cascadeIds){
+          if (willCollapse) n.add(cid); else n.delete(cid)
+        }
+      }
       return n
     })
   }
@@ -420,7 +416,16 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
                 className="tc-disc"
                 aria-label={isCollapsed ? 'Utvid' : 'Skjul'}
                 onMouseDown={(e)=>{e.stopPropagation()}}
-                onClick={(e)=>{ e.stopPropagation(); e.preventDefault(); toggleCollapse(row.id) }}
+                onClick={(e)=>{
+                  e.stopPropagation(); e.preventDefault()
+                  const isAlt = (e as React.MouseEvent).altKey
+                  if (isAlt){
+                    const cascade = getDescendantParentIds(rVisibleIdx)
+                    toggleCollapse(row.id, cascade)
+                  } else {
+                    toggleCollapse(row.id)
+                  }
+                }}
               >
                 {isCollapsed ? '▶' : '▼'}
               </button>
