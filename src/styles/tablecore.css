@@ -88,6 +88,17 @@
 .tc-row.tc-drop-before::before{ top: -2px; }    /* løft over top-border */
 .tc-row.tc-drop-after::after{ bottom: -2px; }   /* senk under bottom-border */
 /* ==== [BLOCK: Row drop hint] END ==== */
+/* ==== [BLOCK: Vertical grid lines] BEGIN ==== */
+/* Loddrette linjer mellom alle kolonner (inkl. etter #-kolonnen) */
+.tc-header > .tc-cell + .tc-cell,
+.tc-row    > .tc-cell + .tc-cell,
+.tc-summary> .tc-cell + .tc-cell {
+  border-left: 1px solid var(--tc-grid);
+}
+
+/* Sørg for at seleksjonsramme/markering tegnes over vertikale linjer */
+.tc-cell.sel { position: relative; z-index: 1; }
+/* ==== [BLOCK: Vertical grid lines] END ==== */
 
 
 /* ==== [BLOCK: TableCore CSS] END ==== */
