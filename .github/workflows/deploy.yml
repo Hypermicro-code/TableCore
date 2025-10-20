@@ -16,17 +16,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          # Viktig: ikke bruk cache før du har en lock-fil i repoet
+          # cache: npm
+
       - name: Install
-        run: npm ci
+        # Bruk npm install når du ikke har package-lock.json
+        run: npm install
+
       - name: Build
         run: npm run build
+
       - name: Copy SPA 404
         run: cp dist/index.html dist/404.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
