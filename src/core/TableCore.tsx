@@ -108,6 +108,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const [sel,setSel]=useState<Selection>(NOSEL)
   const [editing,setEditing]=useState<EditingState>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [rowDropHint, setRowDropHint] = useState<{ idx:number, after:boolean } | null>(null)
 
   const rootRef=useRef<HTMLDivElement|null>(null)
   const dragState=useRef<{active:boolean,dragging:boolean,r0:number,c0:number,x0:number,y0:number}|null>(null)
@@ -136,17 +137,15 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   }
   const isInsideBlock = (idx:number, s:number, e:number) => idx>=s && idx<=e
 
-  // Søsken-område (alle rader som deler samme parent/indent)
+  // Søsken-område
   const siblingRange = (idx:number) => {
     const arr = dataRef.current
     const L = arr[idx]?.indent ?? 0
-    // finn parent-grense oppover
     let start = idx
     for (let i=idx-1;i>=0;i--){
       if (arr[i].indent < L){ start = i+1; break }
       if (i===0) start = 0
     }
-    // finn grense nedover
     let end = idx
     for (let i=idx+1;i<arr.length;i++){
       if (arr[i].indent < L){ end = i-1; break }
@@ -370,27 +369,55 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   }
 
   // ======== RAD-DRAG (blokk, samme nivå, over/under) ========
-  const onRowDragStart = (rowIdx:number)=>(e:React.DragEvent)=>{ e.dataTransfer.setData('text/x-row-index', String(rowIdx)); e.dataTransfer.effectAllowed = 'move' }
-  const onRowDragOver = (rowIdx:number)=>(e:React.DragEvent)=>{ e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
+  const onRowDragStart = (rowIdx:number)=>(e:React.DragEvent)=>{ e.dataTransfer.setData('text/x-row-index', String(rowIdx)); e.dataTransfer.effectAllowed = 'move'; setRowDropHint(null) }
+  const onRowDragEnd = () => { setRowDropHint(null) }
+
+  const onRowDragOver = (rowIdx:number)=>(e:React.DragEvent)=>{
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+
+    const fromStr = e.dataTransfer.getData('text/x-row-index')
+    if (!fromStr) { setRowDropHint(null); return }
+    const from = Number(fromStr)
+    if (Number.isNaN(from)) { setRowDropHint(null); return }
+
+    const arr = dataRef.current
+    const { start: sA, end: eA, baseIndent: L } = blockOf(from)
+
+    // ugyldig mål? (annet nivå eller inne i egen blokk)
+    if (!arr[rowIdx] || arr[rowIdx].indent !== L || (rowIdx>=sA && rowIdx<=eA)) { setRowDropHint(null); return }
+
+    // Finn over/under basert på museposisjon
+    const rowEl = (rootRef.current)?.querySelector(`.tc-row[data-r="${rowIdx}"]`) as HTMLElement | null
+    if (!rowEl) { setRowDropHint(null); return }
+    const rect = rowEl.getBoundingClientRect()
+    const after = (e.clientY > rect.top + rect.height/2)
+
+    // Vis hint
+    setRowDropHint({ idx: rowIdx, after })
+  }
+
   const onRowDrop = (rowIdx:number)=>(e:React.DragEvent)=>{
     e.preventDefault()
-    const fromStr = e.dataTransfer.getData('text/x-row-index'); if (fromStr==='') return
-    const from = Number(fromStr); if (Number.isNaN(from) || from===rowIdx) return
+    const fromStr = e.dataTransfer.getData('text/x-row-index'); if (fromStr==='') { setRowDropHint(null); return }
+    const from = Number(fromStr); if (Number.isNaN(from) || from===rowIdx) { setRowDropHint(null); return }
 
     const arr = dataRef.current.slice()
     const { start: sA, end: eA, baseIndent: L } = blockOf(from)
-    if (isInsideBlock(rowIdx, sA, eA)) return // kan ikke slippe inni egen blokk
-    if (arr[rowIdx]?.indent !== L) return // mål må være samme nivå
+    if (isInsideBlock(rowIdx, sA, eA)) { setRowDropHint(null); return } // ikke slippe inni egen blokk
+    if (arr[rowIdx]?.indent !== L) { setRowDropHint(null); return } // mål må være samme nivå
 
-    // Bestem OVER/UNDER målrad
-    const rowEl = (rootRef.current)?.querySelector(`.tc-row[data-r="${rowIdx}"]`) as HTMLElement | null
+    // Bestem OVER/UNDER samme som i dragOver (fallback hvis DOM ikke finnes)
     let placeAfterTargetBlock = false
+    const rowEl = (rootRef.current)?.querySelector(`.tc-row[data-r="${rowIdx}"]`) as HTMLElement | null
     if (rowEl){
       const rect = rowEl.getBoundingClientRect()
       placeAfterTargetBlock = (e.clientY > rect.top + rect.height/2)
+    } else if (rowDropHint && rowDropHint.idx===rowIdx){
+      placeAfterTargetBlock = rowDropHint.after
     }
 
-    // Finn mål-blokk
+    // Finn mål-blokk lokalt
     const blockOfLocal = (idx:number) => {
       const baseIndent = arr[idx]?.indent ?? 0
       let end = idx
@@ -402,10 +429,8 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     }
     const { start: sB, end: eB } = blockOfLocal(rowIdx)
 
-    // Plasseringsindeks
     let insertAt = placeAfterTargetBlock ? eB + 1 : sB
 
-    // Flytt A-blokka
     const blockA = arr.slice(sA, eA+1)
     arr.splice(sA, blockA.length)
     if (insertAt > sA) insertAt -= blockA.length
@@ -413,6 +438,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
     setAndPropagate(arr)
     setSel({ r1: insertAt, r2: insertAt, c1: sel.c1, c2: sel.c1 })
+    setRowDropHint(null)
   }
 
   return (
@@ -470,6 +496,9 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         const rowClasses = ['tc-row']
         if (isParent) rowClasses.push('tc-parent')
         if (row.indent>0) rowClasses.push('tc-child')
+        if (rowDropHint && rowDropHint.idx===rVisibleIdx){
+          rowClasses.push(rowDropHint.after ? 'tc-drop-after' : 'tc-drop-before')
+        }
 
         return(
         <div key={row.id} className={rowClasses.join(' ')} style={{gridTemplateColumns:gridCols}} data-r={rVisibleIdx}>
@@ -478,6 +507,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             className="tc-cell tc-idx tc-row-handle"
             draggable
             onDragStart={onRowDragStart(rVisibleIdx)}
+            onDragEnd={onRowDragEnd}
             onDragOver={onRowDragOver(rVisibleIdx)}
             onDrop={onRowDrop(rVisibleIdx)}
             title="Dra for å flytte rad (innen samme innrykk)"
