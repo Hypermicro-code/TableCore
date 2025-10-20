@@ -66,4 +66,20 @@
 /* (Valgfritt) litt diskret drop-indikasjon kan legges til senere */
 /* ==== [BLOCK: DnD styling] END ==== */
 
+/* ==== [BLOCK: Row drop hint] BEGIN ==== */
+.tc-row { position: relative; }
+.tc-row.tc-drop-before::before,
+.tc-row.tc-drop-after::after{
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #2b6cb0; /* diskret blå strek */
+  pointer-events: none;
+}
+.tc-row.tc-drop-before::before{ top: 0; }
+.tc-row.tc-drop-after::after{ bottom: 0; }
+/* ==== [BLOCK: Row drop hint] END ==== */
+
 /* ==== [BLOCK: TableCore CSS] END ==== */
