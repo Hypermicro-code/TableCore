@@ -65,7 +65,6 @@ function computeRollups(rows: RowData[], columns: ColumnDef[]): { rollups: Rollu
           const newMax = curMax === undefined ? ms : Math.max(curMax, ms)
           rec[keyMin] = newMin
           rec[keyMax] = newMax
-          // Default "auto" visning (for kolonner uten dateRole) forblir min→max
           if (!col.dateRole){
             rec[col.key] = col.type==='date'
               ? (newMin===newMax ? fmtDate(newMin) : `${fmtDate(newMin)} → ${fmtDate(newMax)}`)
@@ -88,6 +87,9 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const [sel,setSel]=useState<Selection>(NOSEL)
   const [editing,setEditing]=useState<EditingState>(null)
 
+  // NEW: kollaps-tilstand (lagres på rad-id)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
   const rootRef=useRef<HTMLDivElement|null>(null)
   const dragState=useRef<{active:boolean,dragging:boolean,r0:number,c0:number,x0:number,y0:number}|null>(null)
   const suppressClickToEditOnce=useRef(false)
@@ -102,13 +104,30 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setAndPropagate(next); setEditing(null)
   }
   const nextPosAfter = (r:number,c:number,dir:'down'|'up'|'right'|'left')=>{
-    const rowMax=dataRef.current.length-1, colMax=columns.length-1
-    let rr=r, cc=c
-    if(dir==='down'){ rr=clamp(r+1,0,rowMax) }
-    if(dir==='up'){ rr=clamp(r-1,0,rowMax) }
-    if(dir==='right'){ cc=c+1; if(cc>colMax){ cc=0; rr=clamp(r+1,0,rowMax) } }
-    if(dir==='left'){ cc=c-1; if(cc<0){ cc=colMax; rr=clamp(r-1,0,rowMax) } }
-    return {r:rr,c:cc}
+    const visible = visibleRowIndices
+    const idxInVisible = visible.indexOf(r)
+    const colMax=columns.length-1
+    if (idxInVisible === -1){
+      // fall-back: finn nærmeste synlige etter r
+      const nearest = visible.find(v=>v>=r) ?? visible[visible.length-1]
+      return { r: nearest ?? r, c }
+    }
+    let vi = idxInVisible
+    if(dir==='down') vi = Math.min(visible.length-1, vi+1)
+    if(dir==='up')   vi = Math.max(0, vi-1)
+    if(dir==='right'){
+      let cc = c+1
+      let rr = r
+      if (cc>colMax){ cc=0; vi = Math.min(visible.length-1, vi+1); rr = visible[vi] }
+      return { r: rr, c: cc }
+    }
+    if(dir==='left'){
+      let cc = c-1
+      let rr = r
+      if (cc<0){ cc=colMax; vi = Math.max(0, vi-1); rr = visible[vi] }
+      return { r: rr, c: cc }
+    }
+    return { r: visible[vi], c }
   }
 
   // ==== Inn/utrykk (begrenset) + flytt rad (låst) ====
@@ -130,7 +149,7 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
     setSel(s=>hasSel(s)?{r1:tgt,r2:tgt,c1:s.c1,c2:s.c1}:{r1:tgt,r2:tgt,c1:0,c2:0})
   }
 
-  // ==== Global key handler (låst atferd) ====
+  // ==== Global key handler (låst) ====
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       const rowMax=dataRef.current.length-1, colMax=columns.length-1
@@ -145,15 +164,19 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
           if(!hasSel(sel)) return
           e.preventDefault()
           let r=sel.r1,c=sel.c1
-          if(e.key==='ArrowUp')r=clamp(r-1,0,rowMax)
-          if(e.key==='ArrowDown')r=clamp(r+1,0,rowMax)
-          if(e.key==='ArrowLeft')c=clamp(c-1,0,colMax)
-          if(e.key==='ArrowRight')c=clamp(c+1,0,colMax)
+          // bruk synlige rader
+          if(e.key==='ArrowUp')  r = nextPosAfter(r,c,'up').r
+          if(e.key==='ArrowDown')r = nextPosAfter(r,c,'down').r
+          if(e.key==='Left' || e.key==='ArrowLeft') c = clamp(c-1,0,colMax)
+          if(e.key==='Right'|| e.key==='ArrowRight')c = clamp(c+1,0,colMax)
           if(e.key==='Tab'){
-            if(e.shiftKey){ c--; if(c<0){ c=colMax; r=clamp(r-1,0,rowMax) } }
-            else { c++; if(c>colMax){ c=0; r=clamp(r+1,0,rowMax) } }
+            const n = nextPosAfter(r,c, e.shiftKey ? 'left':'right')
+            r = n.r; c = n.c
           }
-          if(e.key==='Enter'){ r = e.shiftKey?clamp(r-1,0,rowMax):clamp(r+1,0,rowMax) }
+          if(e.key==='Enter'){
+            const n = nextPosAfter(r,c, e.shiftKey ? 'up':'down')
+            r = n.r; c = n.c
+          }
           setSel({r1:r,r2:r,c1:c,c2:c}); return
         }
         if(e.key.length===1 && !e.ctrlKey && !e.metaKey){
@@ -185,8 +208,23 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
   const onMouseUp=()=>{ if(!dragState.current)return; const wasDragging=dragState.current.dragging; dragState.current.active=false; dragState.current.dragging=false; setGlobalNoSelect(false); if(suppressClickToEditOnce.current){suppressClickToEditOnce.current=false;return} if(!wasDragging){} }
   const onCellDoubleClick=(r:number,c:number)=>(ev:React.MouseEvent)=>{ ev.preventDefault(); suppressClickToEditOnce.current=true; setEditing({ r, c, mode:'selectAll' }) }
 
-  // ==== ROLLUPS + visning ====
+  // ==== ROLLUPS + hvilke rader har barn ====
   const { rollups, hasChildren } = useMemo(()=> computeRollups(data, columns), [data, columns])
+
+  // ==== Synlige rader (skjul alle descendants av kollapsede foreldre) ====
+  const visibleRowIndices = useMemo(()=>{
+    const result:number[] = []
+    const stack: Array<{ id:string, indent:number, collapsed:boolean }> = []
+    for (let i=0;i<data.length;i++){
+      const row = data[i]
+      while (stack.length && stack[stack.length-1].indent >= row.indent) stack.pop()
+      const hiddenByAncestor = stack.some(a=>a.collapsed)
+      if (!hiddenByAncestor) result.push(i)
+      const isParent = hasChildren.has(i)
+      stack.push({ id: row.id, indent: row.indent, collapsed: isParent ? collapsed.has(row.id) : false })
+    }
+    return result
+  }, [data, hasChildren, collapsed])
 
   const isAggregatedCell = (rowIndex:number, col: ColumnDef) => {
     if (!hasChildren.has(rowIndex)) return false
@@ -207,19 +245,18 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
       if (col.dateRole === 'end' && maxMs !== undefined){
         return col.type==='date' ? fmtDate(maxMs) : fmtDatetime(maxMs)
       }
-      // fallback: auto min→max
       const auto = rec[col.key]; return auto !== undefined ? auto : stored
     }
-    // number: sum ligger i rec[col.key]
     return rec[col.key] !== undefined ? rec[col.key]! : stored
   }
 
-  // ==== Clipboard (bevar låst atferd; bruk visningsverdi; beskytt aggregat) ====
+  // ==== Clipboard: bruk synlige rader ====
   const onCopy=(e:React.ClipboardEvent)=>{
     if(!hasSel(sel)) return
-    const {r1,r2,c1,c2}=sel
+    const {c1,c2}=sel
     const m:(string|number|'')[][]=[]
-    for(let r=r1;r<=r2;r++){
+    for (const r of visibleRowIndices){
+      if (r<sel.r1 || r>sel.r2) continue
       const row=data[r]; const line:(string|number|'')[]=[]
       for(let c=c1;c<=c2;c++){
         const col=columns[c]; const stored = row.cells[col.key] ?? ''
@@ -227,21 +264,25 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
       }
       m.push(line)
     }
-    e.clipboardData.setData('text/plain',toTSV(m)); e.preventDefault()
+    if (m.length){ e.clipboardData.setData('text/plain',toTSV(m)); e.preventDefault() }
   }
   const onPaste=(e:React.ClipboardEvent)=>{
     if(!hasSel(sel)) return
     const txt=e.clipboardData.getData('text/plain'); if(!txt) return
     e.preventDefault()
-    const m=parseClipboard(txt); const next=data.slice(); const {r1,c1}=sel
+    const m=parseClipboard(txt); const next=data.slice()
+    // finn alle synlige rader fra start
+    const startIdxInVisible = visibleRowIndices.indexOf(sel.r1)
+    if (startIdxInVisible === -1) return
     for(let i=0;i<m.length;i++){
-      const rr=r1+i; if(rr>=next.length)break
+      const visRow = visibleRowIndices[startIdxInVisible + i]
+      if (visRow === undefined) break
       for(let j=0;j<m[i].length;j++){
-        const cc=c1+j; if(cc>=columns.length)break
+        const cc=sel.c1+j; if(cc>=columns.length)break
         const col=columns[cc]
-        if (isAggregatedCell(rr, col)) continue
+        if (isAggregatedCell(visRow, col)) continue
         const raw=m[i][j]
-        next[rr].cells[col.key] = isNumericColumn(col) ? (raw===''?'':Number(raw)) : raw
+        next[visRow].cells[col.key] = isNumericColumn(col) ? (raw===''?'':Number(raw)) : raw
       }
     }
     setAndPropagate(next)
@@ -262,6 +303,15 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
 
   const gridCols=useMemo(()=>makeGridTemplate(columns),[columns])
 
+  // === Toggle knapp
+  const toggleCollapse = (rowId:string) => {
+    setCollapsed(prev=>{
+      const n = new Set(prev)
+      if (n.has(rowId)) n.delete(rowId); else n.add(rowId)
+      return n
+    })
+  }
+
   return (
   <div ref={rootRef} className="tc-root" onCopy={onCopy} onPaste={onPaste}>
     <div className="tc-wrap" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
@@ -279,52 +329,61 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
         </div>
       )}
 
-      {/* rows */}
-      {data.map((row,rIdx)=>{
+      {/* rows – kun synlige */}
+      {visibleRowIndices.map((rVisibleIdx, visiblePos)=>{
+        const row = data[rVisibleIdx]
         const showIndex=rowHasContent(row,columns)
-        const isParent = useMemo(()=>false,[]) // placeholder so linter happy (we add class below)
+        const isParent = hasChildren.has(rVisibleIdx)
+        const isCollapsed = isParent && collapsed.has(row.id)
 
-        // rad-klasser for typografi
         const rowClasses = ['tc-row']
-        // parent?
-        // (bruk hasChildren fra rollups)
-        if ( (useMemo(()=>hasChildren.has(rIdx), [rIdx, hasChildren])) ) rowClasses.push('tc-parent')
-        // innrykk?
+        if (isParent) rowClasses.push('tc-parent')
         if (row.indent>0) rowClasses.push('tc-child')
 
         return(
         <div key={row.id} className={rowClasses.join(' ')} style={{gridTemplateColumns:gridCols}}>
-          <div className="tc-cell tc-idx">{showIndex?rIdx+1:''}</div>
+          <div className="tc-cell tc-idx">{showIndex ? (visiblePos+1) : ''}</div>
           {columns.map((col,cIdx)=>{
-            const inSel = hasSel(sel) && rIdx>=sel.r1&&rIdx<=sel.r2&&cIdx>=sel.c1&&cIdx<=sel.c2
-            const top=inSel&&rIdx===sel.r1,bottom=inSel&&rIdx===sel.r2,left=inSel&&cIdx===sel.c1,right=inSel&&cIdx===sel.c2
+            const inSel = hasSel(sel) && rVisibleIdx>=sel.r1&&rVisibleIdx<=sel.r2&&cIdx>=sel.c1&&cIdx<=sel.c2
+            const top=inSel&&rVisibleIdx===sel.r1,bottom=inSel&&rVisibleIdx===sel.r2,left=inSel&&cIdx===sel.c1,right=inSel&&cIdx===sel.c2
             const classes=['tc-cell']; if(inSel)classes.push('sel'); if(top)classes.push('sel-top'); if(bottom)classes.push('sel-bottom'); if(left)classes.push('sel-left'); if(right)classes.push('sel-right')
 
             const storedVal = row.cells[col.key] ?? ''
-            const shownVal = displayValue(rIdx, col, storedVal)
-            const canEditThisCell = !(isAggregatedCell(rIdx, col)) // parent-aggregat = lesevisning (tittel kan editeres)
+            const shownVal = displayValue(rVisibleIdx, col, storedVal)
+            const canEditThisCell = !(isAggregatedCell(rVisibleIdx, col)) // parent-aggregat = lesevisning (tittel kan editeres)
+            const editingHere = !!editing && editing.r===rVisibleIdx && editing.c===cIdx && canEditThisCell
+            const titleAttr = String(shownVal)
 
-            const editingHere = !!editing && editing.r===rIdx && editing.c===cIdx && canEditThisCell
-            const titleAttr = typeof shownVal === 'number' ? String(shownVal) : String(shownVal)
+            // Disclosure i tittelkolonnen
+            const maybeDisclosure = (col.isTitle && isParent) ? (
+              <button
+                className="tc-disc"
+                aria-label={isCollapsed ? 'Utvid' : 'Skjul'}
+                onMouseDown={(e)=>{e.stopPropagation()}}
+                onClick={(e)=>{ e.stopPropagation(); e.preventDefault(); toggleCollapse(row.id) }}
+              >
+                {isCollapsed ? '▶' : '▼'}
+              </button>
+            ) : null
 
             if(editingHere){
               const handleCommitMove = (value:string, key:string, _isTextarea:boolean, e:React.KeyboardEvent)=>{
                 const dir = key==='Enter' ? (e.shiftKey ? 'up' : 'down') : key==='Tab' ? (e.shiftKey ? 'left' : 'right') : null
                 if(!dir) return
                 e.preventDefault(); skipBlurCommit.current = true
-                commitEdit(rIdx,cIdx,value)
-                const next = nextPosAfter(rIdx,cIdx,dir); setSel({r1:next.r,r2:next.r,c1:next.c,c2:next.c})
+                commitEdit(rVisibleIdx,cIdx,value)
+                const next = nextPosAfter(rVisibleIdx,cIdx,dir); setSel({r1:next.r,r2:next.r,c1:next.c,c2:next.c})
               }
 
               if(isNumericColumn(col)){
                 const seed = editing!.seed && /[0-9\-\.,]/.test(editing!.seed) ? editing!.seed : ''
                 const def = editing!.mode==='replace' ? seed : String(storedVal)
                 return(
-                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
+                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rVisibleIdx} data-c={cIdx}>
                     <input
                       autoFocus defaultValue={def}
                       ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
-                      onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rIdx,cIdx,e.currentTarget.value) }}
+                      onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
                       onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab'){ handleCommitMove((e.target as HTMLInputElement).value,e.key,false,e); return } if(e.key==='Escape'){ e.preventDefault(); setEditing(null) } }}
                       type="number" style={{width:'100%',border:'none',outline:'none',background:'transparent'}}
                     />
@@ -333,11 +392,11 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
               } else {
                 const def = editing!.mode==='replace' ? (editing!.seed ?? '') : String(storedVal)
                 return(
-                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rIdx} data-c={cIdx}>
+                  <div key={col.key} className={classes.join(' ')} data-cell data-r={rVisibleIdx} data-c={cIdx}>
                     <textarea
                       autoFocus defaultValue={def}
                       ref={el=>{ if(!el)return; requestAnimationFrame(()=>{ if(editing!.mode==='selectAll')el.select(); else { const e=el.value.length; el.setSelectionRange(e,e) } }) }}
-                      onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rIdx,cIdx,e.currentTarget.value) }}
+                      onBlur={e=>{ if(skipBlurCommit.current){ skipBlurCommit.current=false; return } commitEdit(rVisibleIdx,cIdx,e.currentTarget.value) }}
                       onKeyDown={e=>{
                         if(e.key==='Enter' && e.altKey){
                           e.preventDefault()
@@ -357,13 +416,14 @@ export default function TableCore({columns,rows,onChange,showSummary=false,summa
             return(
             <div key={col.key}
               className={classes.join(' ')}
-              data-cell data-r={rIdx} data-c={cIdx}
-              onMouseDown={onCellMouseDown(rIdx,cIdx)}
-              onDoubleClick={onCellDoubleClick(rIdx,cIdx)}
+              data-cell data-r={rVisibleIdx} data-c={cIdx}
+              onMouseDown={onCellMouseDown(rVisibleIdx,cIdx)}
+              onDoubleClick={onCellDoubleClick(rVisibleIdx,cIdx)}
               title={titleAttr}>
               {col.isTitle?
                 <span className="tc-title">
                   <span className="tc-indent" style={{['--lvl' as any]:row.indent}}/>
+                  {maybeDisclosure}
                   <span>{String(shownVal)}</span>
                 </span>
               : <span>{String(shownVal)}</span>}
