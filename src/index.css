@@ -1,5 +1,5 @@
-/* ===== Morning Coffee Labs – Light Project Ribbon/Toolbar (flat) ===== */
-:root{
+/* ===== Morning Coffee Labs – Light Project Ribbon/Toolbar (flat & seamless) ===== */
+:root {
   /* Palett (lys kaffe) */
   --coffee-bg: #ffffff;         /* app-bakgrunn */
   --coffee-toolbar: #f5e9da;    /* lys kaffe i topp */
@@ -12,7 +12,7 @@
 
   /* Tokens */
   --tb-radius: 0px;     /* spisse hjørner */
-  --menubar-h: 36px;    /* kompakt toppmeny */
+  --menubar-h: 72px;    /* høy verktøylinje (plass til logo) */
   --btn-h: 28px;        /* knapphøyde */
   --btn-icon: 16px;     /* ikonstørrelse */
   --gap: 6px;
@@ -20,9 +20,9 @@
   --font: 13px;
 }
 
-*{ box-sizing: border-box; }
-html,body,#root{ height:100%; margin:0; }
-body{
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
   background: var(--coffee-bg);
   color: var(--coffee-ink);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
@@ -30,83 +30,62 @@ body{
 }
 
 /* ===== MENYLINJE (faner: File | Edit | … ) ===== */
-.menubar{
+.menubar {
+  position: sticky;
+  top: 0;
+  z-index: 2000;
   height: var(--menubar-h);
   background: var(--coffee-toolbar);
   color: var(--coffee-ink);
   border-bottom: 1px solid var(--coffee-border);
   display: grid;
-  grid-template-columns: 1fr auto; /* tabs venstre | høyreinnhold */
+  grid-template-columns: 1fr auto;
   align-items: center;
   padding: 0 var(--pad);
+
+  /* 🟤 Varm, subtil skygge */
+  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
+  backdrop-filter: blur(2px);
 }
 
-.menu-tabs{ display:flex; align-items:center; gap: 2px; }
-.menu-tab{
+.menu-tabs { display: flex; align-items: center; gap: 2px; }
+
+.menu-tab {
   appearance: none;
   background: transparent;
   border: 1px solid transparent;
   border-bottom: 2px solid transparent;
   border-radius: var(--tb-radius);
-  height: calc(var(--menubar-h) - 8px);
-  padding: 0 10px;
+  height: calc(var(--menubar-h) - 16px);
+  padding: 0 12px;
   color: var(--coffee-ink);
   cursor: pointer;
+  font-size: 14px;
 }
-.menu-tab:hover{ background: var(--coffee-hover); }
-.menu-tab[aria-selected="true"]{
+.menu-tab:hover { background: var(--coffee-hover); }
+.menu-tab[aria-selected="true"],
+.menu-tab[aria-pressed="true"] {
   border-color: var(--coffee-border);
   border-bottom-color: var(--coffee-ink);
   font-weight: 600;
 }
-.menu-tab:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+.menu-tab:focus-visible { outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
 
-.menu-right{ display:flex; align-items:center; gap: 8px; }
-.menu-logo{ display:inline-flex; align-items:center; gap:6px; color: var(--coffee-ink); font-weight: 600; }
-.menu-logo img{ height: 18px; width: auto; }
+.menu-right { display: flex; align-items: center; gap: 8px; }
+.menu-logo { display: inline-flex; align-items: center; gap: 6px; color: var(--coffee-ink); font-weight: 600; }
+.menu-logo img { height: 28px; width: auto; }
 
-/* ===== RIBBON (flat, identisk stil som toolbar) ===== */
-.ribbon{
-  /* ikke fast høyde – la innholdet bestemme, men hold det kompakt */
-  background: var(--coffee-toolbar);
-  color: var(--coffee-ink);
-  border-bottom: 1px solid var(--coffee-border);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--gap);
-  padding: 6px var(--pad);
-  box-shadow: none;
-}
-
-/* Fjern grupperinger/paneler – la knappene ligge rett på flaten */
-.tb-group{
-  /* Fallback: nøytral container uten visuell effekt */
-  display: contents;                       /* flater vekk wrapperen (moderne browsere) */
-}
-@supports not (display: contents) {
-  .tb-group{
-    display:flex; align-items:center; gap: var(--gap);
-    padding: 0; margin: 0; background: transparent; border: none;
-  }
-}
-/* Skjul ev. gruppetitler som pseudo-elementer */
-.tb-group[aria-label]::before{ display: none !important; content: ""; }
-
-/* Divider har ingen visuell funksjon i flat ribbon */
-.tb-divider{ display: none; }
-
-/* ===== Felles knappestil (toolbar + ribbon) ===== */
+/* ===== FLATE KNAPPER (toolbar + ribbon) ===== */
 .tb-btn,
 .menubar .btn,
 .ribbon .btn,
-.ribbon button{
-  display:inline-flex; align-items:center; gap: 6px;
+.ribbon button {
+  display: inline-flex; align-items: center; gap: 6px;
   height: var(--btn-h);
   padding: 0 10px;
-  background: transparent;                           /* flat */
+  background: transparent;
   color: var(--coffee-ink);
-  border: 1px solid var(--coffee-border);
+  border: 1px solid transparent;
   border-radius: var(--tb-radius);
   cursor: pointer;
   white-space: nowrap;
@@ -117,33 +96,39 @@ body{
 .tb-btn:hover,
 .menubar .btn:hover,
 .ribbon .btn:hover,
-.ribbon button:hover{
+.ribbon button:hover {
+  border-color: var(--coffee-border);
   background: var(--coffee-hover);
 }
 .tb-btn:active,
 .menubar .btn:active,
 .ribbon .btn:active,
-.ribbon button:active{
+.ribbon button:active {
+  border-color: var(--coffee-border);
   background: var(--coffee-active);
 }
 .tb-btn:disabled,
 .menubar .btn:disabled,
 .ribbon .btn:disabled,
-.ribbon button:disabled{
-  opacity:.5; cursor: not-allowed; background: transparent; border-color: var(--coffee-border);
+.ribbon button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  background: transparent;
+  border-color: var(--coffee-border);
 }
 .tb-btn:focus-visible,
 .menubar .btn:focus-visible,
 .ribbon .btn:focus-visible,
-.ribbon button:focus-visible{
-  outline: 2px solid var(--coffee-focus); outline-offset: 2px;
+.ribbon button:focus-visible {
+  border-color: var(--coffee-border);
+  outline: 2px solid var(--coffee-focus);
+  outline-offset: 2px;
 }
+.tb-icon { width: var(--btn-icon); height: var(--btn-icon); display: inline-flex; }
 
-.tb-icon{ width: var(--btn-icon); height: var(--btn-icon); display:inline-flex; }
-
-/* ===== Chips/inputs som matcher flaten ===== */
-.status-chip{
-  display:inline-flex; align-items:center; gap:6px;
+/* ===== Status-chips / Inputs ===== */
+.status-chip {
+  display: inline-flex; align-items: center; gap: 6px;
   height: var(--btn-h);
   padding: 0 8px;
   border: 1px solid var(--coffee-border);
@@ -151,12 +136,12 @@ body{
   color: var(--coffee-muted);
   border-radius: var(--tb-radius);
 }
-.status-dot{ width:8px; height:8px; border-radius:50%; background: #c9c9c9; }
-.status-ok{ background:#22c55e; }
-.status-off{ background:#ef4444; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #c9c9c9; }
+.status-ok { background: #22c55e; }
+.status-off { background: #ef4444; }
 
 input[type="text"],
-input[type="search"]{
+input[type="search"] {
   background: transparent;
   color: var(--coffee-ink);
   border: 1px solid var(--coffee-border);
@@ -164,99 +149,46 @@ input[type="search"]{
   height: var(--btn-h);
   padding: 0 8px;
 }
-/* === Ribbon-knapper helt flate som default (kant kun ved interaksjon) === */
-.ribbon button,
-.ribbon .btn {
-  border-color: transparent !important;     /* ingen synlig kant til vanlig */
-  background: transparent !important;
-}
 
-.ribbon button:hover,
-.ribbon .btn:hover {
-  border-color: var(--coffee-border) !important;
-  background: var(--coffee-hover) !important;
-}
-
-.ribbon button:active,
-.ribbon .btn:active {
-  border-color: var(--coffee-border) !important;
-  background: var(--coffee-active) !important;
-}
-
-.ribbon button:focus-visible,
-.ribbon .btn:focus-visible {
-  border-color: var(--coffee-border) !important; /* marker fokus */
-  outline: 2px solid var(--coffee-focus);
-  outline-offset: 2px;
-}
-/* === Øk høyden på verktøylinja (menylinja) === */
-:root {
-  --menubar-h: 72px; /* dobbelt så høy som tidligere */
-}
-
-/* Juster vertikal plassering for innholdet så det ikke ser for kompakt ut */
-.menubar {
-  height: var(--menubar-h);
-  padding: 0 var(--pad);
+/* ===== Ribbon flatt – uten grupper ===== */
+.ribbon {
+  display: flex;
   align-items: center;
-}
-
-/* Tilpass tab-høyde og knappestørrelse til ny høyde */
-.menu-tab {
-  height: calc(var(--menubar-h) - 16px);
-  padding: 0 12px;
-  font-size: 14px;
-}
-
-/* Hvis du ønsker logoen litt større: */
-.menu-logo img {
-  height: 28px; /* tidligere 18px */
-}
-/* === Ribbon som OVERLAY (ligger utenpå, ikke skyver siden) === */
-
-/* === Løft/skygge under verktøylinja (samme som ribbon) === */
-.menubar {
-  position: sticky; /* eller fixed om du vil låse helt */
-  top: 0;
-  z-index: 2000;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  padding: 6px var(--pad);
   background: var(--coffee-toolbar);
+  color: var(--coffee-ink);
   border-bottom: 1px solid var(--coffee-border);
-
-  /* 🟤 Varm, subtil skygge */
-  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
-  backdrop-filter: blur(2px);
 }
+.tb-group { display: contents; }
+@supports not (display: contents) {
+  .tb-group { display: flex; align-items: center; gap: var(--gap); padding: 0; margin: 0; border: none; background: transparent; }
+}
+.tb-group[aria-label]::before { display: none !important; }
+.tb-divider { display: none; }
 
-
-/* Ribbon: fast posisjon under menylinja, full bredde, over resten av siden */
-.ribbon{
+/* ===== Overlay + Animasjon ("rulle" inn/ut) ===== */
+.ribbon {
   position: fixed;
   left: 0;
   right: 0;
-  top: var(--menubar-h);      /* legger seg rett under verktøylinja */
-  z-index: 1999;              /* under menylinja, over resten */
-  max-height: 160px;          /* nok til 1–2 rader knapper */
+  top: var(--menubar-h);
+  z-index: 1999;
+  transform-origin: top;
+  transform: translateY(0) scaleY(1);
   opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-
-  /* smooth åpne/lukke */
+  will-change: transform, opacity, box-shadow;
   transition:
-    max-height 160ms ease,
-    opacity 120ms ease,
-    transform 160ms ease;
-    box-shadow 200ms ease;
-
-  /* 🟤 Varm, diffus skygge */
+    transform 320ms cubic-bezier(.2,.8,.2,1),
+    opacity   260ms ease,
+    box-shadow 240ms ease;
   box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
   backdrop-filter: blur(2px);
 }
-
-/* Skjult: ingen høyde, usynlig, tar ikke klikk */
-.ribbon.ribbon--hidden{
-  max-height: 0;
+.ribbon.ribbon--hidden {
+  transform: translateY(-10px) scaleY(.88);
   opacity: 0;
-  transform: translateY(-6px);
   pointer-events: none;
   box-shadow: none;
   border-bottom: 0 !important;
@@ -265,32 +197,30 @@ input[type="search"]{
   overflow: hidden;
 }
 
-/* === Seamless toolbar+ribbon when ribbon is open === */
-
-/* Default: toolbar has its own shadow/border (already set earlier). */
-/* When ribbon is open, remove the toolbar’s bottom border/shadow, and let ribbon carry the shadow. */
+/* ===== Seamless toppfelt ===== */
 html.ribbon-open .menubar {
   border-bottom: 0 !important;
   box-shadow: none !important;
 }
-
-/* Ribbon becomes the continuous extension carrying the single shadow. */
 html.ribbon-open .ribbon {
-  /* same warm shadow as before */
-  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
-  /* no top border/line; sits flush against toolbar */
   border-top: 0 !important;
+  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
 }
 
-/* When ribbon is hidden, toolbar shows its own shadow again (already defined above). */
-
-/* (Optional modern fallback if you prefer pure CSS without JS class):
-   Use :has to detect visible ribbon; keep both for maximum robustness.
-   Many evergreen browsers support :has now. */
+/* Fallback med :has (for moderne nettlesere) */
 .menubar:has(+ .ribbon:not(.ribbon--hidden)) {
   border-bottom: 0 !important;
   box-shadow: none !important;
 }
 
-/* ===== Sideinnhold (demo) ===== */
-.page{ padding: 12px; }
+/* Redusert bevegelse */
+@media (prefers-reduced-motion: reduce) {
+  .ribbon {
+    transition: opacity 120ms linear;
+    transform: none !important;
+  }
+  .ribbon.ribbon--hidden { opacity: 0; }
+}
+
+/* ===== Demo-side ===== */
+.page { padding: 12px; }
