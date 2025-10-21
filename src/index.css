@@ -214,12 +214,19 @@ input[type="search"]{
 }
 /* === Ribbon som OVERLAY (ligger utenpå, ikke skyver siden) === */
 
-/* Valgfritt men anbefalt: la menylinja ligge klistret i toppen ved scroll */
-.menubar{
+/* === Løft/skygge under verktøylinja (samme som ribbon) === */
+.menubar {
   position: sticky; /* eller fixed om du vil låse helt */
   top: 0;
-  z-index: 2000; /* over innholdet */
+  z-index: 2000;
+  background: var(--coffee-toolbar);
+  border-bottom: 1px solid var(--coffee-border);
+
+  /* 🟤 Varm, subtil skygge */
+  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
+  backdrop-filter: blur(2px);
 }
+
 
 /* Ribbon: fast posisjon under menylinja, full bredde, over resten av siden */
 .ribbon{
