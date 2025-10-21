@@ -13,22 +13,22 @@ import {
 /* ===== [BLOCK: Default Commands] ===== */
 registerCommands([
   // File
-  { id: "toolbar.file.save",   labelKey:"file.save",   icon:<Save/>,    group:"file",  shortcut:"Ctrl+S",        run:(ctx)=>alert("Lagre (demo)") },
-  { id: "toolbar.file.import", labelKey:"file.import", icon:<Upload/>,  group:"file",                          run:()=>alert("Importer (demo)") },
-  { id: "toolbar.file.export", labelKey:"file.export", icon:<Download/>,group:"file",                          run:()=>alert("Eksporter (demo)") },
+  { id: "toolbar.file.save",   labelKey:"file.save",   icon:<Save/>,     group:"file",  shortcut:"Ctrl+S",        run:(ctx)=>alert("Lagre (demo)") },
+  { id: "toolbar.file.import", labelKey:"file.import", icon:<Upload/>,   group:"file",                          run:()=>alert("Importer (demo)") },
+  { id: "toolbar.file.export", labelKey:"file.export", icon:<Download/>, group:"file",                          run:()=>alert("Eksporter (demo)") },
 
   // Edit
-  { id:"toolbar.edit.cut",     labelKey:"edit.cut",    icon:<Scissors/>,      group:"edit",                          run:()=>alert("Klipp (demo)") },
-  { id:"toolbar.edit.copy",    labelKey:"edit.copy",   icon:<Copy/>,          group:"edit",                          run:()=>alert("Kopier (demo)") },
-  { id:"toolbar.edit.paste",   labelKey:"edit.paste",  icon:<ClipboardPaste/>,group:"edit",                          run:()=>alert("Lim inn (demo)") },
-  { id:"toolbar.edit.undo",    labelKey:"edit.undo",   icon:<Undo2/>,         group:"edit",  shortcut:"Ctrl+Z",      run:()=>alert("Angre (demo)") },
-  { id:"toolbar.edit.redo",    labelKey:"edit.redo",   icon:<Redo2/>,         group:"edit",  shortcut:"Shift+Ctrl+Z", run:()=>alert("Gjør om (demo)") },
-  { id:"toolbar.edit.delete",  labelKey:"edit.delete", icon:<Trash2/>,        group:"edit",                          run:()=>alert("Slett (demo)") },
+  { id:"toolbar.edit.cut",     labelKey:"edit.cut",    icon:<Scissors/>,       group:"edit",                          run:()=>alert("Klipp (demo)") },
+  { id:"toolbar.edit.copy",    labelKey:"edit.copy",   icon:<Copy/>,           group:"edit",                          run:()=>alert("Kopier (demo)") },
+  { id:"toolbar.edit.paste",   labelKey:"edit.paste",  icon:<ClipboardPaste/>, group:"edit",                          run:()=>alert("Lim inn (demo)") },
+  { id:"toolbar.edit.undo",    labelKey:"edit.undo",   icon:<Undo2/>,          group:"edit",  shortcut:"Ctrl+Z",      run:()=>alert("Angre (demo)") },
+  { id:"toolbar.edit.redo",    labelKey:"edit.redo",   icon:<Redo2/>,          group:"edit",  shortcut:"Shift+Ctrl+Z", run:()=>alert("Gjør om (demo)") },
+  { id:"toolbar.edit.delete",  labelKey:"edit.delete", icon:<Trash2/>,         group:"edit",                          run:()=>alert("Slett (demo)") },
 
   // View
-  { id:"toolbar.view.zoomout",  labelKey:"view.zoomout",  icon:<ZoomOut/>, group:"view", run:()=>alert("Zoom − (demo)") },
+  { id:"toolbar.view.zoomout",  labelKey:"view.zoomout",  icon:<ZoomOut/>,  group:"view", run:()=>alert("Zoom − (demo)") },
   { id:"toolbar.view.zoomreset", labelKey:"view.zoomreset", icon:<Square/>, group:"view", run:()=>alert("100% (demo)") },
-  { id:"toolbar.view.zoomin",   labelKey:"view.zoomin",   icon:<ZoomIn/>,  group:"view", run:()=>alert("Zoom + (demo)") },
+  { id:"toolbar.view.zoomin",   labelKey:"view.zoomin",   icon:<ZoomIn/>,   group:"view", run:()=>alert("Zoom + (demo)") },
   { id:"toolbar.view.filter",   labelKey:"view.filter",   icon:<ListFilter/>, group:"view", run:()=>alert("Filter (demo)") },
 
   // Insert
@@ -61,7 +61,7 @@ const GROUPS_MAP: Record<string, ToolbarGroupDef[]> = {
 
 type Props = {
   ctx: ToolbarContext
-  slots?: SlotInjection[]   // app-spesifikke grupper (renderes i ribbon)
+  slots?: SlotInjection[]   // app-spesifikke grupper (renderes i ribbon når synlig)
   projectName?: string
   status?: "saved" | "autosave" | "offline"
   /** Appen kan sende inn ekstra innhold til høyre i menylinja (f.eks. logo). */
@@ -77,11 +77,18 @@ export default function ToolbarCore({
 }: Props){
   const { t } = useTranslation()
   const tabs = React.useMemo(()=>["File","Edit","View","Insert","Tools","Help"],[])
-  const [active, setActive] = React.useState<string>("File")
+  // aktiv fane eller null hvis ribbon er skjult
+  const [active, setActive] = React.useState<string | null>(null)
 
-  // I v1 rendres alle slot-grupper etter base-gruppene i ribbon (uavhengig av fane)
+  // toggling: klikk på valgt fane => skjul; klikk på annen fane => vis ny
+  const onTabClick = (tab: string) => {
+    setActive(prev => (prev === tab ? null : tab))
+  }
+
+  // slots rendres etter base-gruppene når ribbon er synlig
   const slotGroups = slots.flatMap(s => s.groups)
   const groups = React.useMemo(() => {
+    if (!active) return []
     const base = GROUPS_MAP[active] ?? []
     return [...base, ...slotGroups]
   }, [active, slotGroups])
@@ -91,19 +98,22 @@ export default function ToolbarCore({
       {/* ===== MENYLINJE ===== */}
       <div className="menubar" role="menubar" aria-label="Hovedmeny">
         <div className="menu-tabs">
-          {tabs.map(tab => (
-            <button
-              key={tab}
-              className="menu-tab"
-              role="menuitemradio"
-              aria-checked={active === tab ? "true" : "false"}
-              aria-selected={active === tab ? "true" : "false"}
-              onClick={()=>setActive(tab)}
-              title={tab}
-            >
-              {tab}
-            </button>
-          ))}
+          {tabs.map(tab => {
+            const selected = active === tab
+            return (
+              <button
+                key={tab}
+                className="menu-tab"
+                role="button"
+                aria-expanded={selected ? "true" : "false"}
+                aria-pressed={selected ? "true" : "false"}
+                onClick={()=>onTabClick(tab)}
+                title={tab}
+              >
+                {tab}
+              </button>
+            )
+          })}
         </div>
         <div className="menu-right">
           <span className="status-chip" title={projectName}>
@@ -118,9 +128,14 @@ export default function ToolbarCore({
         </div>
       </div>
 
-      {/* ===== RIBBON ===== */}
-      <div className="ribbon" role="toolbar" aria-label={`Ribbon: ${active}`}>
-        {groups.map(g => (
+      {/* ===== RIBBON (vises bare når en fane er aktiv) ===== */}
+      <div
+        className={`ribbon ${active ? "" : "ribbon--hidden"}`}
+        role="toolbar"
+        aria-label={active ? `Ribbon: ${active}` : "Ribbon skjult"}
+        aria-hidden={active ? "false" : "true"}
+      >
+        {active && groups.map(g => (
           <ToolbarGroup key={`${active}-${g.id}`} group={g} ctx={ctx} />
         ))}
       </div>
