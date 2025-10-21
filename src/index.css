@@ -241,6 +241,121 @@ html.ribbon-open .ribbon {
   }
   .ribbon.ribbon--hidden { opacity: 0; }
 }
+/* === POLISH: micro-interactions, ikon-fade, fokus, toggle, a11y =================== */
+
+/* 1) Micro-transitions på knapper (hover/active føles silkemykt) */
+.tb-btn,
+.menubar .btn,
+.ribbon .btn,
+.ribbon button {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 60ms ease;
+}
+
+/* Lite “press” ved klikk */
+.tb-btn:active,
+.menubar .btn:active,
+.ribbon .btn:active,
+.ribbon button:active {
+  transform: translateY(1px);
+}
+
+/* 2) Ikon-mikrobevegelse på hover for å gi liv (men *ikke* på disabled) */
+.tb-btn:hover .tb-icon,
+.menubar .btn:hover .tb-icon,
+.ribbon .btn:hover .tb-icon,
+.ribbon button:hover .tb-icon {
+  transform: translateY(-1px);
+  transition: transform 120ms ease;
+}
+.tb-btn:active .tb-icon,
+.menubar .btn:active .tb-icon,
+.ribbon .btn:active .tb-icon,
+.ribbon button:active .tb-icon {
+  transform: translateY(0);
+  transition: transform 60ms ease;
+}
+
+/* 3) Forbedret fokus (tydelig men elegant) */
+.tb-btn:focus-visible,
+.menubar .btn:focus-visible,
+.ribbon .btn:focus-visible,
+.ribbon button:focus-visible {
+  outline: 2px solid var(--coffee-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px var(--coffee-border) inset;
+}
+
+/* 4) Toggle/pressed-stil for knapper som holder tilstand */
+.tb-btn[aria-pressed="true"],
+.menubar .btn[aria-pressed="true"],
+.ribbon .btn[aria-pressed="true"],
+.ribbon button[aria-pressed="true"],
+.tb-btn.is-on,
+.menubar .btn.is-on,
+.ribbon .btn.is-on,
+.ribbon button.is-on {
+  background: var(--coffee-active);
+  border-color: var(--coffee-border);
+}
+
+/* 5) Ribbon-ikoner: diskret fade/slide-in når ribbon åpnes (uavhengig av rulle-animasjonen) */
+.ribbon .tb-icon,
+.ribbon button .tb-icon {
+  opacity: 0;
+  transform: translateY(-2px);
+  transition:
+    transform 200ms cubic-bezier(.2,.8,.2,1),
+    opacity   160ms ease;
+  will-change: transform, opacity;
+}
+.ribbon:not(.ribbon--hidden):not(.ribbon--closing) .tb-icon,
+.ribbon:not(.ribbon--hidden):not(.ribbon--closing) button .tb-icon {
+  opacity: 1;
+  transform: none;
+  transition-delay: 60ms; /* liten stagger for premium-følelse */
+}
+
+/* 6) Touch-vennlige treff (litt høyere knapper på pekeskjerm) */
+@media (pointer: coarse) {
+  :root { --btn-h: 34px; }
+  .menu-tab { height: calc(var(--menubar-h) - 12px); }
+}
+
+/* 7) Høy-kontrast-modus (bedre konturer) */
+@media (prefers-contrast: more) {
+  :root {
+    --coffee-border: #b89f88;
+    --coffee-hover: rgba(0,0,0,0.12);
+  }
+  .tb-btn,
+  .menubar .btn,
+  .ribbon .btn,
+  .ribbon button {
+    border-color: var(--coffee-border);
+  }
+  .tb-btn:hover,
+  .menubar .btn:hover,
+  .ribbon .btn:hover,
+  .ribbon button:hover {
+    background: var(--coffee-hover);
+  }
+}
+
+/* 8) Bevegelsesreduksjon (respekt for brukerens OS-innstilling) */
+@media (prefers-reduced-motion: reduce) {
+  .tb-btn,
+  .menubar .btn,
+  .ribbon .btn,
+  .ribbon button,
+  .ribbon .tb-icon,
+  .ribbon button .tb-icon {
+    transition: none !important;
+    transform: none !important;
+  }
+}
 
 /* ===== Demo-side ===== */
 .page { padding: 12px; }
