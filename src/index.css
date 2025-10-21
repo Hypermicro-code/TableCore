@@ -296,3 +296,43 @@ html, body, #root {
   color: var(--mc-toolbar-text) !important;
   border: 1px solid var(--mc-toolbar-border) !important;
 }
+/* === Ribbon: fjern hvit bakplate rundt knappene === */
+/* Treffer vanlige container-navn og "innebygde" kombinasjoner */
+.ribbon .group,
+.ribbon .group-body,
+.ribbon .group-inner,
+.ribbon .panel,
+.ribbon .section,
+.ribbon .box,
+.ribbon .controls,
+.ribbon .button-bar,
+.ribbon [class*="group"],
+.ribbon [class*="panel"],
+.ribbon [class*="section"] {
+  background-color: var(--mc-toolbar-bg) !important;
+  border: 1px solid var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+}
+
+/* Fjern hvite mellomrom/separatorer (de to “boksene” til høyre) */
+.ribbon .separator,
+.ribbon .divider,
+.ribbon .spacer,
+.ribbon [role="separator"] {
+  background-color: var(--mc-toolbar-bg) !important;
+  border-left: 1px solid var(--mc-toolbar-border) !important;
+  border-right: 0 !important;
+  width: 12px; /* bevar visuelt skille uten hvit blokk */
+  min-width: 12px;
+  box-shadow: none !important;
+}
+
+/* Unngå at noen hvite kort “lekker” inn i ribbon */
+.ribbon * {
+  box-shadow: none !important;
+}
+
+/* Ekstra: hvit border-linje under hele ribbon-området → kaffe-farget */
+.ribbon, .ribbon-bar, .ribbon-row {
+  border-bottom: 1px solid var(--mc-toolbar-border) !important;
+}
