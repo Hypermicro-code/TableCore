@@ -198,8 +198,8 @@ input[type="search"] {
   box-shadow: none;
   /* Lukking skal være roligere/tydeligere */
   transition:
-    transform 480ms cubic-bezier(.2,.8,.2,1),
-    opacity   420ms ease 80ms,
+    transform 240ms cubic-bezier(.2,.8,.2,1),
+    opacity   180ms ease 40ms,
     box-shadow 200ms ease;
 }
 
