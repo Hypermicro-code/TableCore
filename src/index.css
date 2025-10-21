@@ -212,6 +212,20 @@ input[type="search"]{
 .menu-logo img {
   height: 28px; /* tidligere 18px */
 }
+/* === Ribbon: vis/gjem med høyde/opacity-transition === */
+.ribbon{
+  transition: max-height 160ms ease, padding 160ms ease, opacity 120ms ease;
+  max-height: 120px;       /* nok til én–to rader knapper */
+  opacity: 1;
+}
+.ribbon.ribbon--hidden{
+  max-height: 0;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-bottom: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+}
 
 /* ===== Sideinnhold (demo) ===== */
 .page{ padding: 12px; }
