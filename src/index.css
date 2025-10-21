@@ -212,20 +212,46 @@ input[type="search"]{
 .menu-logo img {
   height: 28px; /* tidligere 18px */
 }
-/* === Ribbon: vis/gjem med høyde/opacity-transition === */
-.ribbon{
-  transition: max-height 160ms ease, padding 160ms ease, opacity 120ms ease;
-  max-height: 120px;       /* nok til én–to rader knapper */
-  opacity: 1;
+/* === Ribbon som OVERLAY (ligger utenpå, ikke skyver siden) === */
+
+/* Valgfritt men anbefalt: la menylinja ligge klistret i toppen ved scroll */
+.menubar{
+  position: sticky; /* eller fixed om du vil låse helt */
+  top: 0;
+  z-index: 2000; /* over innholdet */
 }
+
+/* Ribbon: fast posisjon under menylinja, full bredde, over resten av siden */
+.ribbon{
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--menubar-h);      /* legger seg rett under verktøylinja */
+  z-index: 1999;              /* under menylinja, over resten */
+  max-height: 160px;          /* nok til 1–2 rader knapper */
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+
+  /* smooth åpne/lukke */
+  transition:
+    max-height 160ms ease,
+    opacity 120ms ease,
+    transform 160ms ease;
+}
+
+/* Skjult: ingen høyde, usynlig, tar ikke klikk */
 .ribbon.ribbon--hidden{
   max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  border-bottom: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
-  border-bottom: 0 !important;
-  opacity: 0;
   overflow: hidden;
 }
+
 
 /* ===== Sideinnhold (demo) ===== */
 .page{ padding: 12px; }
