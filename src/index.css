@@ -172,3 +172,83 @@ header.app-toolbar {
 .app-toolbar .icon {
   color: var(--mc-toolbar-text) !important;
 }
+/* === Kaffe-flate for hele toppområdet (meny + ribbon) === */
+:root {
+  --mc-toolbar-bg: #f5e9da;      /* lys kaffe */
+  --mc-toolbar-border: #d8c9b8;  /* diskret kant */
+  --mc-toolbar-text: #2c2217;    /* mørk brun tekst */
+  --mc-toolbar-hover: rgba(0,0,0,0.06);
+}
+
+/* Selve toppbarene (treffer vanlige varianter) */
+header,
+nav,
+.toolbar-core,
+.ribbon,
+.ribbon-bar,
+.ribbon-row,
+.menu-bar,
+.menubar,
+.menu-root,
+.menu-strip {
+  background-color: var(--mc-toolbar-bg) !important;
+  color: var(--mc-toolbar-text) !important;
+  border-bottom: 1px solid var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+}
+
+/* Fjern hvite “kort” rundt ribbon-grupper/knapper */
+.ribbon .group,
+.ribbon .group-body,
+.ribbon .panel,
+.ribbon .card,
+.ribbon .section,
+.ribbon .box {
+  background: transparent !important;
+  border-color: var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+}
+
+/* Gjør knapper flate (samme flate som bakgrunn) */
+.ribbon button,
+.ribbon .btn,
+.ribbon .button,
+.menubar button,
+.menubar .btn,
+.menu-bar button {
+  background: transparent !important;
+  color: var(--mc-toolbar-text) !important;
+  border-color: var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+}
+.ribbon button:hover,
+.ribbon .btn:hover,
+.menubar button:hover,
+.menu-bar button:hover {
+  background: var(--mc-toolbar-hover) !important;
+}
+
+/* Faner som “File / Edit …” – fjern hvite flater */
+.menubar .tab,
+.menu-bar .tab,
+.menu .tab {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+/* Badger/labels/input i header – samme flate */
+.toolbar-core .badge,
+.ribbon .badge,
+.toolbar-core input,
+.ribbon input,
+.toolbar-core .tag,
+.ribbon .tag {
+  background: transparent !important;
+  color: var(--mc-toolbar-text) !important;
+  border-color: var(--mc-toolbar-border) !important;
+}
+
+/* Sørg for at resten av siden er hvit */
+html, body, #root {
+  background-color: #ffffff !important;
+}
