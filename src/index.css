@@ -1,23 +1,28 @@
-/* ===== Morning Coffee Labs – Light Project Ribbon/Toolbar (flat & seamless) ===== */
+/* ============================================================================
+   Morning Coffee Labs – Toolbar & Ribbon Core (v1.0 locked)
+   Lys "kaffe med fløte"-tema, flat design, rulleanimasjon, fleksibel bredde
+   ============================================================================ */
+
+/* === Grunnpalett og tokens ================================================= */
 :root {
-  /* Palett (lys kaffe) */
-  --coffee-bg: #ffffff;         /* app-bakgrunn */
-  --coffee-toolbar: #f5e9da;    /* lys kaffe i topp */
-  --coffee-ink: #2c2217;        /* mørk brun tekst */
-  --coffee-muted: #6b6b6b;      /* sekundær tekst */
-  --coffee-border: #d8c9b8;     /* diskret kant */
+  --coffee-bg: #ffffff;
+  --coffee-toolbar: #f5e9da;
+  --coffee-ink: #2c2217;
+  --coffee-muted: #6b6b6b;
+  --coffee-border: #d8c9b8;
   --coffee-hover: rgba(0,0,0,0.06);
   --coffee-active: rgba(0,0,0,0.10);
   --coffee-focus: #d7c7b5;
 
-  /* Tokens */
-  --tb-radius: 0px;     /* spisse hjørner */
-  --menubar-h: 72px;    /* høy verktøylinje (plass til logo) */
-  --btn-h: 28px;        /* knapphøyde */
-  --btn-icon: 16px;     /* ikonstørrelse */
+  --tb-radius: 0px;
+  --menubar-h: 72px;
+  --btn-h: 28px;
+  --btn-icon: 16px;
   --gap: 6px;
   --pad: 8px;
   --font: 13px;
+
+  --toolbar-max-width: none; /* kan overstyres fra app via prop */
 }
 
 * { box-sizing: border-box; }
@@ -29,23 +34,28 @@ body {
   font-size: var(--font);
 }
 
-/* ===== MENYLINJE (faner: File | Edit | … ) ===== */
+/* === MENYLINJE (øverste verktøylinje) ===================================== */
 .menubar {
   position: sticky;
   top: 0;
   z-index: 2000;
-  height: var(--menubar-h);
   background: var(--coffee-toolbar);
   color: var(--coffee-ink);
   border-bottom: 1px solid var(--coffee-border);
+  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
+  backdrop-filter: blur(2px);
+  display: block;
+}
+
+/* Innholdet begrenses og sentreres etter --toolbar-max-width */
+.menubar > .menubar-inner {
+  max-width: var(--toolbar-max-width);
+  margin: 0 auto;
+  height: var(--menubar-h);
+  padding: 0 var(--pad);
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  padding: 0 var(--pad);
-
-  /* 🟤 Varm, subtil skygge */
-  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
-  backdrop-filter: blur(2px);
 }
 
 .menu-tabs { display: flex; align-items: center; gap: 2px; }
@@ -69,18 +79,26 @@ body {
   border-bottom-color: var(--coffee-ink);
   font-weight: 600;
 }
-.menu-tab:focus-visible { outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+.menu-tab:focus-visible {
+  outline: 2px solid var(--coffee-focus);
+  outline-offset: 2px;
+}
 
 .menu-right { display: flex; align-items: center; gap: 8px; }
-.menu-logo { display: inline-flex; align-items: center; gap: 6px; color: var(--coffee-ink); font-weight: 600; }
+.menu-logo {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--coffee-ink); font-weight: 600;
+}
 .menu-logo img { height: 28px; width: auto; }
 
-/* ===== FLATE KNAPPER (toolbar + ribbon) ===== */
+/* === KNAPPER (felles toolbar + ribbon) ==================================== */
 .tb-btn,
 .menubar .btn,
 .ribbon .btn,
 .ribbon button {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: var(--btn-h);
   padding: 0 10px;
   background: transparent;
@@ -89,9 +107,10 @@ body {
   border-radius: var(--tb-radius);
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: none;
   font-size: 13px;
   font-weight: 500;
+  box-shadow: none;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 60ms ease;
 }
 .tb-btn:hover,
 .menubar .btn:hover,
@@ -106,6 +125,7 @@ body {
 .ribbon button:active {
   border-color: var(--coffee-border);
   background: var(--coffee-active);
+  transform: translateY(1px);
 }
 .tb-btn:disabled,
 .menubar .btn:disabled,
@@ -114,7 +134,6 @@ body {
   opacity: .5;
   cursor: not-allowed;
   background: transparent;
-  border-color: var(--coffee-border);
 }
 .tb-btn:focus-visible,
 .menubar .btn:focus-visible,
@@ -123,10 +142,32 @@ body {
   border-color: var(--coffee-border);
   outline: 2px solid var(--coffee-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 1px var(--coffee-border) inset;
 }
 .tb-icon { width: var(--btn-icon); height: var(--btn-icon); display: inline-flex; }
 
-/* ===== Status-chips / Inputs ===== */
+/* Hover-animasjon på ikon */
+.tb-btn:hover .tb-icon,
+.ribbon .btn:hover .tb-icon,
+.menubar .btn:hover .tb-icon {
+  transform: translateY(-1px);
+  transition: transform 120ms ease;
+}
+.tb-btn:active .tb-icon,
+.ribbon .btn:active .tb-icon,
+.menubar .btn:active .tb-icon {
+  transform: translateY(0);
+  transition: transform 60ms ease;
+}
+
+/* Toggle-tilstand */
+.tb-btn[aria-pressed="true"],
+.ribbon button[aria-pressed="true"] {
+  background: var(--coffee-active);
+  border-color: var(--coffee-border);
+}
+
+/* === STATUS / INPUTS ====================================================== */
 .status-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: var(--btn-h);
@@ -140,8 +181,7 @@ body {
 .status-ok { background: #22c55e; }
 .status-off { background: #ef4444; }
 
-input[type="text"],
-input[type="search"] {
+input[type="text"], input[type="search"] {
   background: transparent;
   color: var(--coffee-ink);
   border: 1px solid var(--coffee-border);
@@ -150,60 +190,46 @@ input[type="search"] {
   padding: 0 8px;
 }
 
-/* ===== Ribbon flatt – uten grupper ===== */
-.ribbon {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--gap);
-  padding: 6px var(--pad);
-  background: var(--coffee-toolbar);
-  color: var(--coffee-ink);
-  border-bottom: 1px solid var(--coffee-border);
-}
-.tb-group { display: contents; }
-@supports not (display: contents) {
-  .tb-group { display: flex; align-items: center; gap: var(--gap); padding: 0; margin: 0; border: none; background: transparent; }
-}
-.tb-group[aria-label]::before { display: none !important; }
-.tb-divider { display: none; }
-
-/* ===== Overlay + Animasjon – rask åpning, rolig lukking (via .ribbon--closing) ===== */
+/* === RIBBON (flat, overlay, sømløs) ====================================== */
 .ribbon {
   position: fixed;
   left: 0;
   right: 0;
   top: var(--menubar-h);
   z-index: 1999;
+  background: var(--coffee-toolbar);
+  color: var(--coffee-ink);
+  border-bottom: 1px solid var(--coffee-border);
   transform-origin: top;
-  /* ÅPEN tilstand (brukes ved visning og while open) */
   transform: translateY(0) scaleY(1);
   opacity: 1;
   will-change: transform, opacity, box-shadow;
-  /* ÅPNING: snappy (kort og responsiv) */
-  transition:
-    transform 240ms cubic-bezier(.2,.8,.2,1),
-    opacity   180ms ease 40ms,
-    box-shadow 200ms ease;
-  /* Løft/skygge */
+  transition: transform 240ms cubic-bezier(.2,.8,.2,1),
+              opacity 180ms ease 40ms,
+              box-shadow 200ms ease;
   box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
   backdrop-filter: blur(2px);
 }
 
-/* LUKKING: mellomtilstand med ekstra “rull” og lengre tid */
+.ribbon > .ribbon-inner {
+  max-width: var(--toolbar-max-width);
+  margin: 0 auto;
+  padding: 6px var(--pad);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  justify-content: flex-start;
+  text-align: left;
+}
+
+/* LUKKING / SKJULT ======================================================== */
 .ribbon.ribbon--closing {
   transform: translateY(-12px) scaleY(.84);
   opacity: 0;
   pointer-events: none;
   box-shadow: none;
-  /* Lukking skal være roligere/tydeligere */
-  transition:
-    transform 240ms cubic-bezier(.2,.8,.2,1),
-    opacity   180ms ease 40ms,
-    box-shadow 200ms ease;
 }
-
-/* SKJULT: etter lukke-animasjonen */
 .ribbon.ribbon--hidden {
   opacity: 0;
   transform: translateY(-12px) scaleY(.84);
@@ -215,9 +241,21 @@ input[type="search"] {
   overflow: hidden;
 }
 
+/* Ikon-fade når ribbon åpnes */
+.ribbon .tb-icon {
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: transform 200ms cubic-bezier(.2,.8,.2,1),
+              opacity 160ms ease;
+  will-change: transform, opacity;
+}
+.ribbon:not(.ribbon--hidden):not(.ribbon--closing) .tb-icon {
+  opacity: 1;
+  transform: none;
+  transition-delay: 60ms;
+}
 
-
-/* ===== Seamless toppfelt ===== */
+/* Sømløst topplag (toolbar + ribbon) */
 html.ribbon-open .menubar {
   border-bottom: 0 !important;
   box-shadow: none !important;
@@ -226,161 +264,26 @@ html.ribbon-open .ribbon {
   border-top: 0 !important;
   box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
 }
-
-/* Fallback med :has (for moderne nettlesere) */
 .menubar:has(+ .ribbon:not(.ribbon--hidden)) {
   border-bottom: 0 !important;
   box-shadow: none !important;
 }
 
-/* Redusert bevegelse */
-@media (prefers-reduced-motion: reduce) {
-  .ribbon {
-    transition: opacity 120ms linear;
-    transform: none !important;
-  }
-  .ribbon.ribbon--hidden { opacity: 0; }
-}
-/* === POLISH: micro-interactions, ikon-fade, fokus, toggle, a11y =================== */
-
-/* 1) Micro-transitions på knapper (hover/active føles silkemykt) */
-.tb-btn,
-.menubar .btn,
-.ribbon .btn,
-.ribbon button {
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    transform 60ms ease;
-}
-
-/* Lite “press” ved klikk */
-.tb-btn:active,
-.menubar .btn:active,
-.ribbon .btn:active,
-.ribbon button:active {
-  transform: translateY(1px);
-}
-
-/* 2) Ikon-mikrobevegelse på hover for å gi liv (men *ikke* på disabled) */
-.tb-btn:hover .tb-icon,
-.menubar .btn:hover .tb-icon,
-.ribbon .btn:hover .tb-icon,
-.ribbon button:hover .tb-icon {
-  transform: translateY(-1px);
-  transition: transform 120ms ease;
-}
-.tb-btn:active .tb-icon,
-.menubar .btn:active .tb-icon,
-.ribbon .btn:active .tb-icon,
-.ribbon button:active .tb-icon {
-  transform: translateY(0);
-  transition: transform 60ms ease;
-}
-
-/* 3) Forbedret fokus (tydelig men elegant) */
-.tb-btn:focus-visible,
-.menubar .btn:focus-visible,
-.ribbon .btn:focus-visible,
-.ribbon button:focus-visible {
-  outline: 2px solid var(--coffee-focus);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 1px var(--coffee-border) inset;
-}
-
-/* 4) Toggle/pressed-stil for knapper som holder tilstand */
-.tb-btn[aria-pressed="true"],
-.menubar .btn[aria-pressed="true"],
-.ribbon .btn[aria-pressed="true"],
-.ribbon button[aria-pressed="true"],
-.tb-btn.is-on,
-.menubar .btn.is-on,
-.ribbon .btn.is-on,
-.ribbon button.is-on {
-  background: var(--coffee-active);
-  border-color: var(--coffee-border);
-}
-
-/* 5) Ribbon-ikoner: diskret fade/slide-in når ribbon åpnes (uavhengig av rulle-animasjonen) */
-.ribbon .tb-icon,
-.ribbon button .tb-icon {
-  opacity: 0;
-  transform: translateY(-2px);
-  transition:
-    transform 200ms cubic-bezier(.2,.8,.2,1),
-    opacity   160ms ease;
-  will-change: transform, opacity;
-}
-.ribbon:not(.ribbon--hidden):not(.ribbon--closing) .tb-icon,
-.ribbon:not(.ribbon--hidden):not(.ribbon--closing) button .tb-icon {
-  opacity: 1;
-  transform: none;
-  transition-delay: 60ms; /* liten stagger for premium-følelse */
-}
-
-/* 6) Touch-vennlige treff (litt høyere knapper på pekeskjerm) */
+/* === Tilgjengelighet og systempreferanser ================================ */
 @media (pointer: coarse) {
   :root { --btn-h: 34px; }
   .menu-tab { height: calc(var(--menubar-h) - 12px); }
 }
-
-/* 7) Høy-kontrast-modus (bedre konturer) */
 @media (prefers-contrast: more) {
   :root {
     --coffee-border: #b89f88;
     --coffee-hover: rgba(0,0,0,0.12);
   }
-  .tb-btn,
-  .menubar .btn,
-  .ribbon .btn,
-  .ribbon button {
-    border-color: var(--coffee-border);
-  }
-  .tb-btn:hover,
-  .menubar .btn:hover,
-  .ribbon .btn:hover,
-  .ribbon button:hover {
-    background: var(--coffee-hover);
-  }
 }
-
-/* 8) Bevegelsesreduksjon (respekt for brukerens OS-innstilling) */
 @media (prefers-reduced-motion: reduce) {
-  .tb-btn,
-  .menubar .btn,
-  .ribbon .btn,
-  .ribbon button,
-  .ribbon .tb-icon,
-  .ribbon button .tb-icon {
-    transition: none !important;
-    transform: none !important;
-  }
-}
-/* === Breddekontroll for topplinjen (per-app) ======================= */
-/* Sett max-bredde med CSS-variabel --toolbar-max-width, eller via ToolbarCore prop `maxWidth` */
-
-:root { --toolbar-max-width: none; } /* default: full bredde */
-
-.menubar { display: block; } /* lar inner håndtere layout */
-.menubar > .menubar-inner {
-  max-width: var(--toolbar-max-width);
-  margin: 0 auto;
-  height: var(--menubar-h);
-  padding: 0 var(--pad);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
+  .tb-btn, .menubar .btn, .ribbon .btn, .ribbon button,
+  .ribbon .tb-icon { transition: none !important; transform: none !important; }
 }
 
-.ribbon > .ribbon-inner {
-  max-width: var(--toolbar-max-width);
-  margin: 0 auto;
-  padding: 6px var(--pad);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--gap);
-}
-
-/* ===== Demo-side ===== */
+/* === Demo-side-padding ==================================================== */
 .page { padding: 12px; }
