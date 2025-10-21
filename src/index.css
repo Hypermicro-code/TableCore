@@ -168,7 +168,7 @@ input[type="search"] {
 .tb-group[aria-label]::before { display: none !important; }
 .tb-divider { display: none; }
 
-/* ===== Overlay + Animasjon ("rulle" inn/ut) – langsommere lukking + stagger ===== */
+/* ===== Overlay + Animasjon – rask åpning, rolig lukking (via .ribbon--closing) ===== */
 .ribbon {
   position: fixed;
   left: 0;
@@ -176,36 +176,45 @@ input[type="search"] {
   top: var(--menubar-h);
   z-index: 1999;
   transform-origin: top;
+  /* ÅPEN tilstand (brukes ved visning og while open) */
   transform: translateY(0) scaleY(1);
   opacity: 1;
   will-change: transform, opacity, box-shadow;
-  /* ÅPNE (fra skjult → synlig): litt kortere enn lukking, med liten delay på opacity */
+  /* ÅPNING: snappy (kort og responsiv) */
   transition:
-    transform 340ms cubic-bezier(.2,.8,.2,1),
-    opacity   260ms ease 60ms,
-    box-shadow 240ms ease;
+    transform 240ms cubic-bezier(.2,.8,.2,1),
+    opacity   180ms ease 40ms,
+    box-shadow 200ms ease;
+  /* Løft/skygge */
   box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
   backdrop-filter: blur(2px);
 }
 
-.ribbon.ribbon--hidden {
-  /* LUKKE (fra synlig → skjult): ekstra rullefølelse + litt lengre varighet */
+/* LUKKING: mellomtilstand med ekstra “rull” og lengre tid */
+.ribbon.ribbon--closing {
   transform: translateY(-12px) scaleY(.84);
   opacity: 0;
+  pointer-events: none;
+  box-shadow: none;
+  /* Lukking skal være roligere/tydeligere */
+  transition:
+    transform 480ms cubic-bezier(.2,.8,.2,1),
+    opacity   420ms ease 80ms,
+    box-shadow 200ms ease;
+}
+
+/* SKJULT: etter lukke-animasjonen */
+.ribbon.ribbon--hidden {
+  opacity: 0;
+  transform: translateY(-12px) scaleY(.84);
   pointer-events: none;
   box-shadow: none;
   border-bottom: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
   overflow: hidden;
-
-  /* Når vi går INN i denne tilstanden, brukes disse overgangene:
-     → gjør lukking merkbart tregere og med liten stagger på opacity */
-  transition:
-    transform 460ms cubic-bezier(.2,.8,.2,1),
-    opacity   420ms ease 80ms,
-    box-shadow 240ms ease;
 }
+
 
 
 /* ===== Seamless toppfelt ===== */
