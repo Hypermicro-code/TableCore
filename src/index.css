@@ -1,76 +1,143 @@
-/* ===== MorningCoffee Labs – Grunnstil for TableCore og ToolbarCore ===== */
+/* ===== Morning Coffee Labs – Light Project Ribbon Theme ===== */
+:root{
+  /* Palett (lys kaffe) */
+  --coffee-bg: #f7f3ee;         /* bakgrunn app */
+  --coffee-paper: #ffffff;      /* kort, ribbon */
+  --coffee-ink: #2b2b2b;        /* tekst */
+  --coffee-muted: #6b6b6b;      /* sekundær tekst */
+  --coffee-accent: #8b5e34;     /* kaffe-brun */
+  --coffee-accent-2: #c49a6c;   /* lysere brun */
+  --coffee-border: #e6e0d9;     /* linjer/border */
+  --coffee-hover: #f0ebe5;      /* hover */
+  --coffee-focus: #d7c7b5;      /* fokus-outline */
 
-:root {
-  /* Fargepalett */
-  --mc-toolbar-bg: #f6e6ce;   /* Lys kaffe, hovedfarge for verktøylinje */
-  --mc-toolbar-border: #d8c9b8;
-  --mc-toolbar-text: #3a2a1a;
-  --mc-page-bg: #ffffff;      /* Hvit bakgrunn for resten av siden */
-
-  /* Seleksjon og UI-farger */
-  --sel: rgba(120, 180, 255, 0.25);
-  --sel-border: #5b9bd5;
-  --error-bg: #ffe6e6;
-  --error-border: #ff7a7a;
+  /* Tokens */
+  --tb-radius: 0px;       /* spisse hjørner */
+  --menubar-h: 36px;      /* kompakt toppmeny */
+  --ribbon-h: 64px;       /* lav ribbon-høyde */
+  --btn-h: 28px;          /* knapphøyde */
+  --btn-icon: 16px;       /* ikonstørrelse */
+  --gap: 6px;
+  --pad: 8px;
+  --font: 13px;
 }
 
-/* === Generelt layout === */
-html, body, #root {
-  background-color: var(--mc-page-bg);
-  margin: 0;
-  padding: 0;
-  font-family: "Segoe UI", system-ui, sans-serif;
-  color: #222;
+*{ box-sizing: border-box; }
+html,body,#root{ height:100%; margin:0; }
+body{
+  background: var(--coffee-bg);
+  color: var(--coffee-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-size: var(--font);
 }
 
-/* === Verktøylinje === */
-.toolbar-core {
-  background-color: var(--mc-toolbar-bg);
-  color: var(--mc-toolbar-text);
-  border-bottom: 1px solid var(--mc-toolbar-border);
-  height: 44px;
-  display: flex;
+/* ===== MENYLINJE (faner: File | Edit | … ) ===== */
+.menubar{
+  height: var(--menubar-h);
+  background: var(--coffee-paper);
+  border-bottom: 1px solid var(--coffee-border);
+  display: grid;
+  grid-template-columns: 1fr auto; /* tabs venstre | logo høyre */
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  padding: 0 var(--pad);
 }
 
-/* === TableCore visuelle justeringer === */
-.tc-root {
-  background-color: #ffffff;
-  color: #111;
+.menu-tabs{
+  display:flex; align-items:center; gap: 2px;
 }
-
-.tc-header {
-  background-color: #f0f0f0;
-  border-bottom: 1px solid #ddd;
+.menu-tab{
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--tb-radius);
+  height: calc(var(--menubar-h) - 8px);
+  padding: 0 10px;
+  color: var(--coffee-ink);
+  cursor: pointer;
 }
-
-.tc-hcell {
+.menu-tab:hover{ background: var(--coffee-hover); }
+.menu-tab[aria-selected="true"]{
+  border-color: var(--coffee-border);
+  border-bottom-color: var(--coffee-accent);
   font-weight: 600;
-  padding: 0 6px;
+}
+.menu-tab:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+
+/* Logo-høyre */
+.menu-right{
+  display:flex; align-items:center; gap: 8px;
+}
+.menu-logo{
+  display:inline-flex; align-items:center; gap:6px;
+  color: var(--coffee-accent);
+  font-weight: 600;
+}
+.menu-logo img{ height: 18px; width: auto; }
+
+/* ===== RIBBON (grupper av verktøy under fanene) ===== */
+.ribbon{
+  height: var(--ribbon-h);
+  background: var(--coffee-paper);
+  border-bottom: 1px solid var(--coffee-border);
+  display:flex; align-items: stretch; gap: 10px;
+  padding: 6px var(--pad);
+  overflow-x: auto;
 }
 
-.tc-row:nth-child(even) {
-  background-color: #fafafa;
+.tb-group{
+  display:flex; align-items:center; gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--coffee-border);
+  background: #fff;
+  border-radius: var(--tb-radius);
+  height: 100%;
+}
+.tb-group[aria-label]::before{
+  content: attr(aria-label);
+  font-size: 11px; color: var(--coffee-muted);
+  position: relative; top: -34px; /* liten gruppetittel-følelse */
+  margin-right: 6px;
 }
 
-.tc-cell {
-  border-right: 1px solid #eee;
-  padding: 0 6px;
+/* Knappestil (kompakt) */
+.tb-btn{
+  display:inline-flex; align-items:center; gap: 6px;
+  height: var(--btn-h);
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--coffee-border);
+  border-radius: var(--tb-radius);
+  color: var(--coffee-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tb-btn:hover{ background: var(--coffee-hover); }
+.tb-btn:active{ background: #efe7de; }
+.tb-btn:disabled{ opacity:.5; cursor: not-allowed; }
+.tb-btn:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+
+.tb-icon{ width: var(--btn-icon); height: var(--btn-icon); display:inline-flex; }
+
+/* Divider inni grupper */
+.tb-divider{
+  width:1px; height: calc(100% - 12px);
+  background: var(--coffee-border);
+  margin: 6px 2px;
 }
 
-.tc-focus {
-  outline: 1px solid var(--sel-border);
+/* Innhold under ribbon i demoen */
+.page{
+  padding: 12px;
 }
-
-.tc-sel-rect {
-  border: 2px solid var(--sel-border);
-  background: var(--sel);
+.status-chip{
+  display:inline-flex; align-items:center; gap:6px;
+  height: var(--btn-h);
+  padding: 0 8px;
+  border: 1px solid var(--coffee-border);
+  background: #fff;
+  color: var(--coffee-muted);
 }
-
-.tc-cell-error {
-  background-color: var(--error-bg);
-  border: 1px solid var(--error-border);
-}
+.status-dot{ width:8px; height:8px; border-radius:50%; background: #c9c9c9; }
+.status-ok{ background:#22c55e; }
+.status-off{ background:#ef4444; }
