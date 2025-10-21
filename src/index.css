@@ -1,22 +1,20 @@
-/* ===== Morning Coffee Labs – Light Project Ribbon Theme ===== */
+/* ===== Morning Coffee Labs – Light Project Ribbon/Toolbar (flat) ===== */
 :root{
   /* Palett (lys kaffe) */
-  --coffee-bg: #f7f3ee;         /* bakgrunn app */
-  --coffee-paper: #ffffff;      /* kort, ribbon */
-  --coffee-ink: #2b2b2b;        /* tekst */
+  --coffee-bg: #ffffff;         /* app-bakgrunn */
+  --coffee-toolbar: #f5e9da;    /* lys kaffe i topp */
+  --coffee-ink: #2c2217;        /* mørk brun tekst */
   --coffee-muted: #6b6b6b;      /* sekundær tekst */
-  --coffee-accent: #8b5e34;     /* kaffe-brun */
-  --coffee-accent-2: #c49a6c;   /* lysere brun */
-  --coffee-border: #e6e0d9;     /* linjer/border */
-  --coffee-hover: #f0ebe5;      /* hover */
-  --coffee-focus: #d7c7b5;      /* fokus-outline */
+  --coffee-border: #d8c9b8;     /* diskret kant */
+  --coffee-hover: rgba(0,0,0,0.06);
+  --coffee-active: rgba(0,0,0,0.10);
+  --coffee-focus: #d7c7b5;
 
   /* Tokens */
-  --tb-radius: 0px;       /* spisse hjørner */
-  --menubar-h: 36px;      /* kompakt toppmeny */
-  --ribbon-h: 64px;       /* lav ribbon-høyde */
-  --btn-h: 28px;          /* knapphøyde */
-  --btn-icon: 16px;       /* ikonstørrelse */
+  --tb-radius: 0px;     /* spisse hjørner */
+  --menubar-h: 36px;    /* kompakt toppmeny */
+  --btn-h: 28px;        /* knapphøyde */
+  --btn-icon: 16px;     /* ikonstørrelse */
   --gap: 6px;
   --pad: 8px;
   --font: 13px;
@@ -34,17 +32,16 @@ body{
 /* ===== MENYLINJE (faner: File | Edit | … ) ===== */
 .menubar{
   height: var(--menubar-h);
-  background: var(--coffee-paper);
+  background: var(--coffee-toolbar);
+  color: var(--coffee-ink);
   border-bottom: 1px solid var(--coffee-border);
   display: grid;
-  grid-template-columns: 1fr auto; /* tabs venstre | logo høyre */
+  grid-template-columns: 1fr auto; /* tabs venstre | høyreinnhold */
   align-items: center;
   padding: 0 var(--pad);
 }
 
-.menu-tabs{
-  display:flex; align-items:center; gap: 2px;
-}
+.menu-tabs{ display:flex; align-items:center; gap: 2px; }
 .menu-tab{
   appearance: none;
   background: transparent;
@@ -59,276 +56,114 @@ body{
 .menu-tab:hover{ background: var(--coffee-hover); }
 .menu-tab[aria-selected="true"]{
   border-color: var(--coffee-border);
-  border-bottom-color: var(--coffee-accent);
+  border-bottom-color: var(--coffee-ink);
   font-weight: 600;
 }
 .menu-tab:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
 
-/* Logo-høyre */
-.menu-right{
-  display:flex; align-items:center; gap: 8px;
-}
-.menu-logo{
-  display:inline-flex; align-items:center; gap:6px;
-  color: var(--coffee-accent);
-  font-weight: 600;
-}
+.menu-right{ display:flex; align-items:center; gap: 8px; }
+.menu-logo{ display:inline-flex; align-items:center; gap:6px; color: var(--coffee-ink); font-weight: 600; }
 .menu-logo img{ height: 18px; width: auto; }
 
-/* ===== RIBBON (grupper av verktøy under fanene) ===== */
+/* ===== RIBBON (flat, identisk stil som toolbar) ===== */
 .ribbon{
-  height: var(--ribbon-h);
-  background: var(--coffee-paper);
+  /* ikke fast høyde – la innholdet bestemme, men hold det kompakt */
+  background: var(--coffee-toolbar);
+  color: var(--coffee-ink);
   border-bottom: 1px solid var(--coffee-border);
-  display:flex; align-items: stretch; gap: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap);
   padding: 6px var(--pad);
-  overflow-x: auto;
+  box-shadow: none;
 }
 
+/* Fjern grupperinger/paneler – la knappene ligge rett på flaten */
 .tb-group{
-  display:flex; align-items:center; gap: 6px;
-  padding: 6px;
-  border: 1px solid var(--coffee-border);
-  background: #fff;
-  border-radius: var(--tb-radius);
-  height: 100%;
+  /* Fallback: nøytral container uten visuell effekt */
+  display: contents;                       /* flater vekk wrapperen (moderne browsere) */
 }
-.tb-group[aria-label]::before{
-  content: attr(aria-label);
-  font-size: 11px; color: var(--coffee-muted);
-  position: relative; top: -34px; /* liten gruppetittel-følelse */
-  margin-right: 6px;
+@supports not (display: contents) {
+  .tb-group{
+    display:flex; align-items:center; gap: var(--gap);
+    padding: 0; margin: 0; background: transparent; border: none;
+  }
 }
+/* Skjul ev. gruppetitler som pseudo-elementer */
+.tb-group[aria-label]::before{ display: none !important; content: ""; }
 
-/* Knappestil (kompakt) */
-.tb-btn{
+/* Divider har ingen visuell funksjon i flat ribbon */
+.tb-divider{ display: none; }
+
+/* ===== Felles knappestil (toolbar + ribbon) ===== */
+.tb-btn,
+.menubar .btn,
+.ribbon .btn,
+.ribbon button{
   display:inline-flex; align-items:center; gap: 6px;
   height: var(--btn-h);
   padding: 0 10px;
-  background: transparent;
+  background: transparent;                           /* flat */
+  color: var(--coffee-ink);
   border: 1px solid var(--coffee-border);
   border-radius: var(--tb-radius);
-  color: var(--coffee-ink);
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
 }
-.tb-btn:hover{ background: var(--coffee-hover); }
-.tb-btn:active{ background: #efe7de; }
-.tb-btn:disabled{ opacity:.5; cursor: not-allowed; }
-.tb-btn:focus-visible{ outline: 2px solid var(--coffee-focus); outline-offset: 2px; }
+.tb-btn:hover,
+.menubar .btn:hover,
+.ribbon .btn:hover,
+.ribbon button:hover{
+  background: var(--coffee-hover);
+}
+.tb-btn:active,
+.menubar .btn:active,
+.ribbon .btn:active,
+.ribbon button:active{
+  background: var(--coffee-active);
+}
+.tb-btn:disabled,
+.menubar .btn:disabled,
+.ribbon .btn:disabled,
+.ribbon button:disabled{
+  opacity:.5; cursor: not-allowed; background: transparent; border-color: var(--coffee-border);
+}
+.tb-btn:focus-visible,
+.menubar .btn:focus-visible,
+.ribbon .btn:focus-visible,
+.ribbon button:focus-visible{
+  outline: 2px solid var(--coffee-focus); outline-offset: 2px;
+}
 
 .tb-icon{ width: var(--btn-icon); height: var(--btn-icon); display:inline-flex; }
 
-/* Divider inni grupper */
-.tb-divider{
-  width:1px; height: calc(100% - 12px);
-  background: var(--coffee-border);
-  margin: 6px 2px;
-}
-
-/* Innhold under ribbon i demoen */
-.page{
-  padding: 12px;
-}
+/* ===== Chips/inputs som matcher flaten ===== */
 .status-chip{
   display:inline-flex; align-items:center; gap:6px;
   height: var(--btn-h);
   padding: 0 8px;
   border: 1px solid var(--coffee-border);
-  background: #fff;
+  background: transparent;
   color: var(--coffee-muted);
+  border-radius: var(--tb-radius);
 }
 .status-dot{ width:8px; height:8px; border-radius:50%; background: #c9c9c9; }
 .status-ok{ background:#22c55e; }
 .status-off{ background:#ef4444; }
-/* === Theme overrides: kun farger, ingen layout === */
-:root {
-  --mc-toolbar-bg: #f6e6ce;   /* lys kaffe på verktøylinja */
-  --mc-toolbar-text: #3a2a1a; /* mørk brun tekst på verktøylinja */
-  --mc-toolbar-border: #d8c9b8;
-  --mc-page-bg: #ffffff;      /* resten av siden hvit */
+
+input[type="text"],
+input[type="search"]{
+  background: transparent;
+  color: var(--coffee-ink);
+  border: 1px solid var(--coffee-border);
+  border-radius: var(--tb-radius);
+  height: var(--btn-h);
+  padding: 0 8px;
 }
 
-/* Resten av siden hvit – endrer kun bakgrunn, ikke margin/typografi */
-html, body, #root {
-  background-color: var(--mc-page-bg) !important;
-}
-
-/* Treff vanlige toolbar/ribbon-varianter – endrer kun bakgrunn/tekst/border */
-.toolbar-core,
-.ribbon,
-.ribbon-bar,
-.app-toolbar,
-header.toolbar,
-header.app-toolbar {
-  background-color: var(--mc-toolbar-bg) !important;
-  color: var(--mc-toolbar-text) !important;
-  border-bottom: 1px solid var(--mc-toolbar-border) !important;
-}
-
-/* Ikoner/knapper som arver tekstfarge på toolbaren */
-.toolbar-core .icon,
-.ribbon .icon,
-.app-toolbar .icon {
-  color: var(--mc-toolbar-text) !important;
-}
-/* === Kaffe-flate for hele toppområdet (meny + ribbon) === */
-:root {
-  --mc-toolbar-bg: #f5e9da;      /* lys kaffe */
-  --mc-toolbar-border: #d8c9b8;  /* diskret kant */
-  --mc-toolbar-text: #2c2217;    /* mørk brun tekst */
-  --mc-toolbar-hover: rgba(0,0,0,0.06);
-}
-
-/* Selve toppbarene (treffer vanlige varianter) */
-header,
-nav,
-.toolbar-core,
-.ribbon,
-.ribbon-bar,
-.ribbon-row,
-.menu-bar,
-.menubar,
-.menu-root,
-.menu-strip {
-  background-color: var(--mc-toolbar-bg) !important;
-  color: var(--mc-toolbar-text) !important;
-  border-bottom: 1px solid var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
-}
-
-/* Fjern hvite “kort” rundt ribbon-grupper/knapper */
-.ribbon .group,
-.ribbon .group-body,
-.ribbon .panel,
-.ribbon .card,
-.ribbon .section,
-.ribbon .box {
-  background: transparent !important;
-  border-color: var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
-}
-
-/* Gjør knapper flate (samme flate som bakgrunn) */
-.ribbon button,
-.ribbon .btn,
-.ribbon .button,
-.menubar button,
-.menubar .btn,
-.menu-bar button {
-  background: transparent !important;
-  color: var(--mc-toolbar-text) !important;
-  border-color: var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
-}
-.ribbon button:hover,
-.ribbon .btn:hover,
-.menubar button:hover,
-.menu-bar button:hover {
-  background: var(--mc-toolbar-hover) !important;
-}
-
-/* Faner som “File / Edit …” – fjern hvite flater */
-.menubar .tab,
-.menu-bar .tab,
-.menu .tab {
-  background: transparent !important;
-  border-color: transparent !important;
-}
-
-/* Badger/labels/input i header – samme flate */
-.toolbar-core .badge,
-.ribbon .badge,
-.toolbar-core input,
-.ribbon input,
-.toolbar-core .tag,
-.ribbon .tag {
-  background: transparent !important;
-  color: var(--mc-toolbar-text) !important;
-  border-color: var(--mc-toolbar-border) !important;
-}
-
-/* Sørg for at resten av siden er hvit */
-html, body, #root {
-  background-color: #ffffff !important;
-}
-/* === Fjern hvit bakgrunn på knapper og felter i ribbon === */
-.ribbon button,
-.ribbon .btn,
-.ribbon .ribbon-button,
-.toolbar-core button,
-.toolbar-core .btn {
-  background-color: var(--mc-toolbar-bg) !important;
-  color: var(--mc-toolbar-text) !important;
-  border: 1px solid var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
-}
-
-/* === Ribbon forenklet: flate uten grupper, identisk stil som verktøylinje === */
-
-/* Fjern grupperinger og hvite paneler */
-.ribbon,
-.ribbon-bar,
-.ribbon-row,
-.ribbon .group,
-.ribbon .panel,
-.ribbon .section {
-  background-color: var(--mc-toolbar-bg) !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 4px 8px !important;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-/* Knapper – identisk med toolbar */
-.ribbon button,
-.ribbon .btn,
-.toolbar-core button,
-.toolbar-core .btn {
-  background-color: var(--mc-toolbar-bg) !important;
-  color: var(--mc-toolbar-text) !important;
-  border: 1px solid var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
-  padding: 4px 10px !important;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 3px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.ribbon button:hover,
-.ribbon .btn:hover,
-.toolbar-core button:hover,
-.toolbar-core .btn:hover {
-  background-color: var(--mc-toolbar-hover) !important;
-}
-
-.ribbon button:active,
-.ribbon .btn:active,
-.toolbar-core button:active,
-.toolbar-core .btn:active {
-  background-color: var(--mc-toolbar-border) !important;
-}
-
-/* Fjern separatorer og hvite felter */
-.ribbon .separator,
-.ribbon .divider,
-.ribbon [role="separator"] {
-  display: none !important;
-}
-
-/* Harmoniser input/search-felt på samme flate */
-.ribbon input,
-.ribbon .input,
-.toolbar-core input {
-  background-color: var(--mc-toolbar-bg) !important;
-  color: var(--mc-toolbar-text) !important;
-  border: 1px solid var(--mc-toolbar-border) !important;
-  padding: 4px 8px;
-  border-radius: 3px;
-}
+/* ===== Sideinnhold (demo) ===== */
+.page{ padding: 12px; }
