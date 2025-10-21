@@ -252,3 +252,47 @@ nav,
 html, body, #root {
   background-color: #ffffff !important;
 }
+/* === Fjern hvit bakgrunn på knapper og felter i ribbon === */
+.ribbon button,
+.ribbon .btn,
+.ribbon .ribbon-button,
+.toolbar-core button,
+.toolbar-core .btn {
+  background-color: var(--mc-toolbar-bg) !important;
+  color: var(--mc-toolbar-text) !important;
+  border: 1px solid var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+}
+
+/* Hover- og aktiv-tilstander */
+.ribbon button:hover,
+.ribbon .btn:hover,
+.toolbar-core button:hover {
+  background-color: var(--mc-toolbar-hover) !important;
+  border-color: var(--mc-toolbar-border) !important;
+}
+
+.ribbon button:active,
+.ribbon .btn:active,
+.toolbar-core button:active {
+  background-color: var(--mc-toolbar-border) !important;
+}
+
+/* Fjern hvite “kort” rundt grupper i ribbon */
+.ribbon .ribbon-group,
+.ribbon .ribbon-section,
+.ribbon .group,
+.ribbon .panel {
+  background-color: var(--mc-toolbar-bg) !important;
+  border-color: var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+}
+
+/* Juster felt som søk, prosjekt, input etc. */
+.ribbon input,
+.ribbon .input,
+.toolbar-core input {
+  background-color: var(--mc-toolbar-bg) !important;
+  color: var(--mc-toolbar-text) !important;
+  border: 1px solid var(--mc-toolbar-border) !important;
+}
