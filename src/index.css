@@ -164,6 +164,31 @@ input[type="search"]{
   height: var(--btn-h);
   padding: 0 8px;
 }
+/* === Ribbon-knapper helt flate som default (kant kun ved interaksjon) === */
+.ribbon button,
+.ribbon .btn {
+  border-color: transparent !important;     /* ingen synlig kant til vanlig */
+  background: transparent !important;
+}
+
+.ribbon button:hover,
+.ribbon .btn:hover {
+  border-color: var(--coffee-border) !important;
+  background: var(--coffee-hover) !important;
+}
+
+.ribbon button:active,
+.ribbon .btn:active {
+  border-color: var(--coffee-border) !important;
+  background: var(--coffee-active) !important;
+}
+
+.ribbon button:focus-visible,
+.ribbon .btn:focus-visible {
+  border-color: var(--coffee-border) !important; /* marker fokus */
+  outline: 2px solid var(--coffee-focus);
+  outline-offset: 2px;
+}
 
 /* ===== Sideinnhold (demo) ===== */
 .page{ padding: 12px; }
