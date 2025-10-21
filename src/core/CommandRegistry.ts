@@ -1,31 +1,85 @@
-import { Command, ToolbarContext } from "./types"
+/* ============================================================================
+   Morning Coffee Labs – Command Registry Core
+   Felles kommandobus for alle apper i Manage-systemet
+   ============================================================================ */
 
-type Store = {
-  commands: Map<string, Command>
+/** Grunnstruktur for en kommando (én knapp i toolbaren) */
+export type Command = {
+  /** Stabil, unik ID, f.eks. "toolbar.file.save" */
+  id: string
+  /** i18n-nøkkel eller visningsnavn */
+  labelKey: string
+  /** Ikon-komponent (React-element) */
+  icon?: React.ReactNode
+  /** Gruppe (brukes i toolbarens layout) */
+  group?: string
+  /** Tastatursnarvei, f.eks. "Ctrl+S" */
+  shortcut?: string
+  /** Funksjon som kjøres når brukeren klikker / aktiverer kommandoen */
+  run?: (ctx: any, payload?: any) => void
+  /** Skal knappen være synlig i gjeldende kontekst? */
+  isVisible?: (ctx: any) => boolean
+  /** Skal knappen være aktivert (ikke grået ut)? */
+  isEnabled?: (ctx: any) => boolean
+  /** Skal knappen ha vedvarende "på"-tilstand? (toggle) */
+  toggleable?: boolean
 }
 
-const store: Store = {
-  commands: new Map<string, Command>()
-}
+/* ---------------------------------------------------------------------------
+   Intern lagring (enkelt globalt register)
+--------------------------------------------------------------------------- */
+const registry = new Map<string, Command>()
 
-export function registerCommands(cmds: Command[]){
-  for(const c of cmds){
-    store.commands.set(c.id, c)
+/**
+ * Registrer én eller flere kommandoer i systemet.
+ * Kan kalles fra hvilken som helst app/modul.
+ */
+export function registerCommands(cmds: Command[]) {
+  for (const cmd of cmds) {
+    if (!cmd.id) {
+      console.warn("Command missing id:", cmd)
+      continue
+    }
+    if (registry.has(cmd.id)) {
+      console.warn(`Command already registered: ${cmd.id}`)
+      continue
+    }
+    registry.set(cmd.id, cmd)
   }
 }
 
+/**
+ * Hent én kommando via ID.
+ */
 export function getCommand(id: string): Command | undefined {
-  return store.commands.get(id)
+  return registry.get(id)
 }
 
-export function getCommandsByIds(ids: string[]): Command[]{
-  return ids.map(id => store.commands.get(id)).filter(Boolean) as Command[]
+/**
+ * Hent flere kommandoer i gitt rekkefølge.
+ * (brukes av ToolbarGroup for å vise riktig sett med knapper)
+ */
+export function getCommandsByIds(ids: string[]): Command[] {
+  return ids.map(id => registry.get(id)).filter(Boolean) as Command[]
 }
 
-export function runCommand(id: string, ctx: ToolbarContext, payload?: unknown){
-  const cmd = store.commands.get(id)
-  if(!cmd) return
-  if(cmd.isVisible && !cmd.isVisible(ctx)) return
-  if(cmd.isEnabled && !cmd.isEnabled(ctx)) return
-  return cmd.run(ctx, payload)
+/**
+ * Fjern kommando (f.eks. ved hot reload eller midlertidig modul).
+ */
+export function unregisterCommand(id: string) {
+  registry.delete(id)
+}
+
+/**
+ * Tøm hele registeret (brukes sjelden, mest for tester).
+ */
+export function clearCommands() {
+  registry.clear()
+}
+
+/**
+ * Få alle registrerte kommandoer (til debugging eller logging)
+ */
+export function getAllCommands(): Command[] {
+  return Array.from(registry.values())
 }
