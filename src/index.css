@@ -141,3 +141,34 @@ body{
 .status-dot{ width:8px; height:8px; border-radius:50%; background: #c9c9c9; }
 .status-ok{ background:#22c55e; }
 .status-off{ background:#ef4444; }
+/* === Theme overrides: kun farger, ingen layout === */
+:root {
+  --mc-toolbar-bg: #f6e6ce;   /* lys kaffe på verktøylinja */
+  --mc-toolbar-text: #3a2a1a; /* mørk brun tekst på verktøylinja */
+  --mc-toolbar-border: #d8c9b8;
+  --mc-page-bg: #ffffff;      /* resten av siden hvit */
+}
+
+/* Resten av siden hvit – endrer kun bakgrunn, ikke margin/typografi */
+html, body, #root {
+  background-color: var(--mc-page-bg) !important;
+}
+
+/* Treff vanlige toolbar/ribbon-varianter – endrer kun bakgrunn/tekst/border */
+.toolbar-core,
+.ribbon,
+.ribbon-bar,
+.app-toolbar,
+header.toolbar,
+header.app-toolbar {
+  background-color: var(--mc-toolbar-bg) !important;
+  color: var(--mc-toolbar-text) !important;
+  border-bottom: 1px solid var(--mc-toolbar-border) !important;
+}
+
+/* Ikoner/knapper som arver tekstfarge på toolbaren */
+.toolbar-core .icon,
+.ribbon .icon,
+.app-toolbar .icon {
+  color: var(--mc-toolbar-text) !important;
+}
