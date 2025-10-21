@@ -61,11 +61,13 @@ const GROUPS_MAP: Record<string, ToolbarGroupDef[]> = {
 
 type Props = {
   ctx: ToolbarContext
-  slots?: SlotInjection[]   // app-spesifikke grupper (renderes i ribbon når synlig)
+  slots?: SlotInjection[]
   projectName?: string
   status?: "saved" | "autosave" | "offline"
   /** Appen kan sende inn ekstra innhold til høyre i menylinja (f.eks. logo). */
   headerRight?: React.ReactNode
+  /** Maks bredde på innhold (f.eks. "1200px" eller "80rem"). Default: full bredde. */
+  maxWidth?: string | number
 }
 
 export default function ToolbarCore({
@@ -73,33 +75,27 @@ export default function ToolbarCore({
   slots = [],
   projectName = "Uten navn",
   status = "saved",
-  headerRight
+  headerRight,
+  maxWidth
 }: Props){
   const { t } = useTranslation()
-  const tabs = React.useMemo(()=>["File","Edit","View","Insert","Tools","Help"],[])
-
-  // Hvilken fane er synlig i ribbon (null = skjult)
+  const tabs = React.useMemo(()=>["File","Project","App","System"],[])
   const [visibleTab, setVisibleTab] = React.useState<string | null>(null)
-  // Mellomtilstand for lengre lukkeanimasjon
   const [isClosing, setIsClosing] = React.useState(false)
 
   const onTabClick = (tab: string) => {
-    // Klikk på samme fane -> start lukking med animasjon
     if (visibleTab === tab && !isClosing) {
       setIsClosing(true)
-      // vent på animasjon før vi faktisk skjuler
       window.setTimeout(() => {
         setVisibleTab(null)
         setIsClosing(false)
-      }, 480) // match CSS (460–480ms)
+      }, 260) // matcher "snappy" åpne/lukke (juster etter CSS)
       return
     }
-    // Bytte til annen fane eller åpne når skjult -> vis umiddelbart (snappy)
     setIsClosing(false)
     setVisibleTab(tab)
   }
 
-  // Klasse på <html> for sømløs toppfelt-styling når ribbon er synlig
   React.useEffect(() => {
     const el = document.documentElement
     if (visibleTab) el.classList.add("ribbon-open")
@@ -107,7 +103,6 @@ export default function ToolbarCore({
     return () => el.classList.remove("ribbon-open")
   }, [visibleTab])
 
-  // slots vises etter base-gruppene i ribbon
   const slotGroups = slots.flatMap(s => s.groups)
   const groups = React.useMemo(() => {
     if (!visibleTab) return []
@@ -118,38 +113,43 @@ export default function ToolbarCore({
   const ribbonClass =
     `ribbon ${!visibleTab ? "ribbon--hidden" : isClosing ? "ribbon--closing" : ""}`
 
+  // Setter CSS-variabel på roten til komponenten, slik at hver app kan styre max-bredef
+  const styleVar = maxWidth != null ? ({ ["--toolbar-max-width" as any]: typeof maxWidth === "number" ? `${maxWidth}px` : maxWidth }) : undefined
+
   return (
-    <>
+    <div style={styleVar}>
       {/* ===== MENYLINJE ===== */}
       <div className="menubar" role="menubar" aria-label="Hovedmeny">
-        <div className="menu-tabs">
-          {tabs.map(tab => {
-            const selected = visibleTab === tab && !isClosing
-            return (
-              <button
-                key={tab}
-                className="menu-tab"
-                role="button"
-                aria-expanded={selected ? "true" : "false"}
-                aria-pressed={selected ? "true" : "false"}
-                onClick={()=>onTabClick(tab)}
-                title={tab}
-              >
-                {tab}
-              </button>
-            )
-          })}
-        </div>
-        <div className="menu-right">
-          <span className="status-chip" title={projectName}>
-            <span>{projectName}</span>
-            <span className={`status-dot ${status==="saved" ? "status-ok" : status==="offline" ? "status-off" : ""}`} />
-          </span>
-          <span className="status-chip" title="Søk">
-            <span className="tb-icon"><Search/></span>
-            <span>{t("search.placeholder")}</span>
-          </span>
-          {headerRight /* app kan injisere logo/innhold */}
+        <div className="menubar-inner">
+          <div className="menu-tabs">
+            {tabs.map(tab => {
+              const selected = visibleTab === tab && !isClosing
+              return (
+                <button
+                  key={tab}
+                  className="menu-tab"
+                  role="button"
+                  aria-expanded={selected ? "true" : "false"}
+                  aria-pressed={selected ? "true" : "false"}
+                  onClick={()=>onTabClick(tab)}
+                  title={tab}
+                >
+                  {tab}
+                </button>
+              )
+            })}
+          </div>
+          <div className="menu-right">
+            <span className="status-chip" title={projectName}>
+              <span>{projectName}</span>
+              <span className={`status-dot ${status==="saved" ? "status-ok" : status==="offline" ? "status-off" : ""}`} />
+            </span>
+            <span className="status-chip" title="Søk">
+              <span className="tb-icon"><Search/></span>
+              <span>{t("search.placeholder")}</span>
+            </span>
+            {headerRight /* app kan injisere logo/innhold */}
+          </div>
         </div>
       </div>
 
@@ -160,10 +160,12 @@ export default function ToolbarCore({
         aria-label={visibleTab ? `Ribbon: ${visibleTab}` : "Ribbon skjult"}
         aria-hidden={visibleTab ? "false" : "true"}
       >
-        {visibleTab && groups.map(g => (
-          <ToolbarGroup key={`${visibleTab}-${g.id}`} group={g} ctx={ctx} />
-        ))}
+        <div className="ribbon-inner">
+          {visibleTab && groups.map(g => (
+            <ToolbarGroup key={`${visibleTab}-${g.id}`} group={g} ctx={ctx} />
+          ))}
+        </div>
       </div>
-    </>
+    </div>
   )
 }
