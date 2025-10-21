@@ -85,6 +85,17 @@ export default function ToolbarCore({
     setActive(prev => (prev === tab ? null : tab))
   }
 
+  // 🔔 Legg klasse på <html> når ribbon er åpen for sømløs styling i CSS
+  React.useEffect(() => {
+    const el = document.documentElement
+    if (active) {
+      el.classList.add("ribbon-open")
+    } else {
+      el.classList.remove("ribbon-open")
+    }
+    return () => { el.classList.remove("ribbon-open") }
+  }, [active])
+
   // slots rendres etter base-gruppene når ribbon er synlig
   const slotGroups = slots.flatMap(s => s.groups)
   const groups = React.useMemo(() => {
