@@ -238,6 +238,7 @@ input[type="search"]{
     max-height 160ms ease,
     opacity 120ms ease,
     transform 160ms ease;
+    box-shadow 200ms ease;
 
   /* 🟤 Varm, diffus skygge */
   box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
@@ -250,6 +251,7 @@ input[type="search"]{
   opacity: 0;
   transform: translateY(-6px);
   pointer-events: none;
+  box-shadow: none;
   border-bottom: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
