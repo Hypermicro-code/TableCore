@@ -77,32 +77,46 @@ export default function ToolbarCore({
 }: Props){
   const { t } = useTranslation()
   const tabs = React.useMemo(()=>["File","Edit","View","Insert","Tools","Help"],[])
-  // aktiv fane eller null hvis ribbon er skjult
-  const [active, setActive] = React.useState<string | null>(null)
 
-  // toggling: klikk på valgt fane => skjul; klikk på annen fane => vis ny
+  // Hvilken fane er synlig i ribbon (null = skjult)
+  const [visibleTab, setVisibleTab] = React.useState<string | null>(null)
+  // Mellomtilstand for lengre lukkeanimasjon
+  const [isClosing, setIsClosing] = React.useState(false)
+
   const onTabClick = (tab: string) => {
-    setActive(prev => (prev === tab ? null : tab))
+    // Klikk på samme fane -> start lukking med animasjon
+    if (visibleTab === tab && !isClosing) {
+      setIsClosing(true)
+      // vent på animasjon før vi faktisk skjuler
+      window.setTimeout(() => {
+        setVisibleTab(null)
+        setIsClosing(false)
+      }, 480) // match CSS (460–480ms)
+      return
+    }
+    // Bytte til annen fane eller åpne når skjult -> vis umiddelbart (snappy)
+    setIsClosing(false)
+    setVisibleTab(tab)
   }
 
-  // 🔔 Legg klasse på <html> når ribbon er åpen for sømløs styling i CSS
+  // Klasse på <html> for sømløs toppfelt-styling når ribbon er synlig
   React.useEffect(() => {
     const el = document.documentElement
-    if (active) {
-      el.classList.add("ribbon-open")
-    } else {
-      el.classList.remove("ribbon-open")
-    }
-    return () => { el.classList.remove("ribbon-open") }
-  }, [active])
+    if (visibleTab) el.classList.add("ribbon-open")
+    else el.classList.remove("ribbon-open")
+    return () => el.classList.remove("ribbon-open")
+  }, [visibleTab])
 
-  // slots rendres etter base-gruppene når ribbon er synlig
+  // slots vises etter base-gruppene i ribbon
   const slotGroups = slots.flatMap(s => s.groups)
   const groups = React.useMemo(() => {
-    if (!active) return []
-    const base = GROUPS_MAP[active] ?? []
+    if (!visibleTab) return []
+    const base = GROUPS_MAP[visibleTab] ?? []
     return [...base, ...slotGroups]
-  }, [active, slotGroups])
+  }, [visibleTab, slotGroups])
+
+  const ribbonClass =
+    `ribbon ${!visibleTab ? "ribbon--hidden" : isClosing ? "ribbon--closing" : ""}`
 
   return (
     <>
@@ -110,7 +124,7 @@ export default function ToolbarCore({
       <div className="menubar" role="menubar" aria-label="Hovedmeny">
         <div className="menu-tabs">
           {tabs.map(tab => {
-            const selected = active === tab
+            const selected = visibleTab === tab && !isClosing
             return (
               <button
                 key={tab}
@@ -135,19 +149,19 @@ export default function ToolbarCore({
             <span className="tb-icon"><Search/></span>
             <span>{t("search.placeholder")}</span>
           </span>
-          {headerRight /* appen kan injisere logo/innhold */}
+          {headerRight /* app kan injisere logo/innhold */}
         </div>
       </div>
 
-      {/* ===== RIBBON (vises bare når en fane er aktiv) ===== */}
+      {/* ===== RIBBON (overlay) ===== */}
       <div
-        className={`ribbon ${active ? "" : "ribbon--hidden"}`}
+        className={ribbonClass}
         role="toolbar"
-        aria-label={active ? `Ribbon: ${active}` : "Ribbon skjult"}
-        aria-hidden={active ? "false" : "true"}
+        aria-label={visibleTab ? `Ribbon: ${visibleTab}` : "Ribbon skjult"}
+        aria-hidden={visibleTab ? "false" : "true"}
       >
-        {active && groups.map(g => (
-          <ToolbarGroup key={`${active}-${g.id}`} group={g} ctx={ctx} />
+        {visibleTab && groups.map(g => (
+          <ToolbarGroup key={`${visibleTab}-${g.id}`} group={g} ctx={ctx} />
         ))}
       </div>
     </>
