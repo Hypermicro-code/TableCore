@@ -265,6 +265,32 @@ input[type="search"]{
   overflow: hidden;
 }
 
+/* === Seamless toolbar+ribbon when ribbon is open === */
+
+/* Default: toolbar has its own shadow/border (already set earlier). */
+/* When ribbon is open, remove the toolbar’s bottom border/shadow, and let ribbon carry the shadow. */
+html.ribbon-open .menubar {
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Ribbon becomes the continuous extension carrying the single shadow. */
+html.ribbon-open .ribbon {
+  /* same warm shadow as before */
+  box-shadow: 0 2px 6px rgba(100, 80, 40, 0.15);
+  /* no top border/line; sits flush against toolbar */
+  border-top: 0 !important;
+}
+
+/* When ribbon is hidden, toolbar shows its own shadow again (already defined above). */
+
+/* (Optional modern fallback if you prefer pure CSS without JS class):
+   Use :has to detect visible ribbon; keep both for maximum robustness.
+   Many evergreen browsers support :has now. */
+.menubar:has(+ .ribbon:not(.ribbon--hidden)) {
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+}
 
 /* ===== Sideinnhold (demo) ===== */
 .page{ padding: 12px; }
