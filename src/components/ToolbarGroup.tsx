@@ -1,27 +1,60 @@
 import React from "react"
-import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { getCommandsByIds, runCommand } from "@/core/CommandRegistry"
-import { ToolbarContext, ToolbarGroupDef } from "@/core/types"
-import ToolbarButton from "./ToolbarButton"
+import { getCommandsByIds } from "@/core/CommandRegistry"
+import type { ToolbarContext, ToolbarGroupDef } from "@/core/types"
 
-export default function ToolbarGroup({group, ctx}:{group: ToolbarGroupDef; ctx: ToolbarContext}){
+type Props = {
+  group: ToolbarGroupDef
+  ctx: ToolbarContext
+}
+
+/**
+ * Viser en (flat) gruppe med knapper i ribbon/toolbar.
+ * Henter kommandoer via CommandRegistry og kaller cmd.run(ctx) ved klikk.
+ */
+export default function ToolbarGroup({ group, ctx }: Props) {
   const { t } = useTranslation()
-  const commands = useMemo(()=> getCommandsByIds(group.commandIds), [group.commandIds])
+  const cmds = getCommandsByIds(group.commandIds || [])
 
   return (
-    <div className="tb-group" role="group" aria-label={group.titleKey ? t(group.titleKey) : undefined}>
-      {commands.filter(c => c.isVisible ? c.isVisible(ctx) : true).map(cmd => {
-        const enabled = cmd.isEnabled ? cmd.isEnabled(ctx) : true
+    <div className="tb-group" aria-label={group.id}>
+      {cmds.map((cmd) => {
+        if (!cmd) return null
+
+        const visible = cmd.isVisible ? !!cmd.isVisible(ctx) : true
+        if (!visible) return null
+
+        const enabled = cmd.isEnabled ? !!cmd.isEnabled(ctx) : true
+        const label = cmd.labelKey ? t(cmd.labelKey as any) : ""
+        const title =
+          cmd.shortcut && label ? `${label} (${cmd.shortcut})` : label || undefined
+
+        const ariaPressed =
+          typeof (cmd as any).pressed === "function"
+            ? ((cmd as any).pressed(ctx) ? "true" : "false")
+            : undefined
+
         return (
-          <ToolbarButton
+          <button
             key={cmd.id}
-            onClick={() => runCommand(cmd.id, ctx)}
+            className="tb-btn"
+            type="button"
+            onClick={() => {
+              if (!enabled) return
+              try {
+                cmd.run?.(ctx)
+              } catch (err) {
+                console.error(`Command failed: ${cmd.id}`, err)
+              }
+            }}
             disabled={!enabled}
-            icon={cmd.icon}
-            label={t(cmd.labelKey)}
-            tooltip={cmd.shortcut ? `${t(cmd.labelKey)} (${cmd.shortcut})` : t(cmd.labelKey)}
-          />
+            title={title}
+            aria-label={label || cmd.id}
+            aria-pressed={ariaPressed}
+          >
+            {cmd.icon ? <span className="tb-icon">{cmd.icon}</span> : null}
+            <span>{label || cmd.id}</span>
+          </button>
         )
       })}
     </div>
