@@ -189,6 +189,29 @@ input[type="search"]{
   outline: 2px solid var(--coffee-focus);
   outline-offset: 2px;
 }
+/* === Øk høyden på verktøylinja (menylinja) === */
+:root {
+  --menubar-h: 72px; /* dobbelt så høy som tidligere */
+}
+
+/* Juster vertikal plassering for innholdet så det ikke ser for kompakt ut */
+.menubar {
+  height: var(--menubar-h);
+  padding: 0 var(--pad);
+  align-items: center;
+}
+
+/* Tilpass tab-høyde og knappestørrelse til ny høyde */
+.menu-tab {
+  height: calc(var(--menubar-h) - 16px);
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+/* Hvis du ønsker logoen litt større: */
+.menu-logo img {
+  height: 28px; /* tidligere 18px */
+}
 
 /* ===== Sideinnhold (demo) ===== */
 .page{ padding: 12px; }
