@@ -264,75 +264,71 @@ html, body, #root {
   box-shadow: none !important;
 }
 
-/* Hover- og aktiv-tilstander */
+/* === Ribbon forenklet: flate uten grupper, identisk stil som verktøylinje === */
+
+/* Fjern grupperinger og hvite paneler */
+.ribbon,
+.ribbon-bar,
+.ribbon-row,
+.ribbon .group,
+.ribbon .panel,
+.ribbon .section {
+  background-color: var(--mc-toolbar-bg) !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 4px 8px !important;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Knapper – identisk med toolbar */
+.ribbon button,
+.ribbon .btn,
+.toolbar-core button,
+.toolbar-core .btn {
+  background-color: var(--mc-toolbar-bg) !important;
+  color: var(--mc-toolbar-text) !important;
+  border: 1px solid var(--mc-toolbar-border) !important;
+  box-shadow: none !important;
+  padding: 4px 10px !important;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .ribbon button:hover,
 .ribbon .btn:hover,
-.toolbar-core button:hover {
+.toolbar-core button:hover,
+.toolbar-core .btn:hover {
   background-color: var(--mc-toolbar-hover) !important;
-  border-color: var(--mc-toolbar-border) !important;
 }
 
 .ribbon button:active,
 .ribbon .btn:active,
-.toolbar-core button:active {
+.toolbar-core button:active,
+.toolbar-core .btn:active {
   background-color: var(--mc-toolbar-border) !important;
 }
 
-/* Fjern hvite “kort” rundt grupper i ribbon */
-.ribbon .ribbon-group,
-.ribbon .ribbon-section,
-.ribbon .group,
-.ribbon .panel {
-  background-color: var(--mc-toolbar-bg) !important;
-  border-color: var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
+/* Fjern separatorer og hvite felter */
+.ribbon .separator,
+.ribbon .divider,
+.ribbon [role="separator"] {
+  display: none !important;
 }
 
-/* Juster felt som søk, prosjekt, input etc. */
+/* Harmoniser input/search-felt på samme flate */
 .ribbon input,
 .ribbon .input,
 .toolbar-core input {
   background-color: var(--mc-toolbar-bg) !important;
   color: var(--mc-toolbar-text) !important;
   border: 1px solid var(--mc-toolbar-border) !important;
-}
-/* === Ribbon: fjern hvit bakplate rundt knappene === */
-/* Treffer vanlige container-navn og "innebygde" kombinasjoner */
-.ribbon .group,
-.ribbon .group-body,
-.ribbon .group-inner,
-.ribbon .panel,
-.ribbon .section,
-.ribbon .box,
-.ribbon .controls,
-.ribbon .button-bar,
-.ribbon [class*="group"],
-.ribbon [class*="panel"],
-.ribbon [class*="section"] {
-  background-color: var(--mc-toolbar-bg) !important;
-  border: 1px solid var(--mc-toolbar-border) !important;
-  box-shadow: none !important;
-}
-
-/* Fjern hvite mellomrom/separatorer (de to “boksene” til høyre) */
-.ribbon .separator,
-.ribbon .divider,
-.ribbon .spacer,
-.ribbon [role="separator"] {
-  background-color: var(--mc-toolbar-bg) !important;
-  border-left: 1px solid var(--mc-toolbar-border) !important;
-  border-right: 0 !important;
-  width: 12px; /* bevar visuelt skille uten hvit blokk */
-  min-width: 12px;
-  box-shadow: none !important;
-}
-
-/* Unngå at noen hvite kort “lekker” inn i ribbon */
-.ribbon * {
-  box-shadow: none !important;
-}
-
-/* Ekstra: hvit border-linje under hele ribbon-området → kaffe-farget */
-.ribbon, .ribbon-bar, .ribbon-row {
-  border-bottom: 1px solid var(--mc-toolbar-border) !important;
+  padding: 4px 8px;
+  border-radius: 3px;
 }
