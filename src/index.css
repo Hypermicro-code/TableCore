@@ -356,6 +356,31 @@ html.ribbon-open .ribbon {
     transform: none !important;
   }
 }
+/* === Breddekontroll for topplinjen (per-app) ======================= */
+/* Sett max-bredde med CSS-variabel --toolbar-max-width, eller via ToolbarCore prop `maxWidth` */
+
+:root { --toolbar-max-width: none; } /* default: full bredde */
+
+.menubar { display: block; } /* lar inner håndtere layout */
+.menubar > .menubar-inner {
+  max-width: var(--toolbar-max-width);
+  margin: 0 auto;
+  height: var(--menubar-h);
+  padding: 0 var(--pad);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.ribbon > .ribbon-inner {
+  max-width: var(--toolbar-max-width);
+  margin: 0 auto;
+  padding: 6px var(--pad);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap);
+}
 
 /* ===== Demo-side ===== */
 .page { padding: 12px; }
